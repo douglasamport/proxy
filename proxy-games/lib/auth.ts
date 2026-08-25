@@ -85,3 +85,16 @@ export async function currentPlayer() {
   await sql`update players set last_seen_at = now() where id = ${row.id}`;
   return row as { id: string; email: string; display_name: string | null };
 }
+
+// Ends the current session: deletes the session row (so a copied/leaked
+// cookie stops working immediately, not just on expiry) and clears the cookie.
+export async function logout() {
+  const jar = await cookies();
+  const sid = jar.get(SESSION_COOKIE)?.value;
+
+  if (sid) {
+    await sql`delete from sessions where id = ${sid}`;
+  }
+
+  jar.delete(SESSION_COOKIE);
+}

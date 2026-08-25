@@ -1,0 +1,201 @@
+'use client';
+
+import { useEffect, useRef } from 'react';
+import { CFG, DIRS, atBase, cellAt, heldUnits, idx, inBounds, returnCost } from './engine';
+import type { DirKey, RunState } from './engine';
+
+const ARROWS: Record<string, string> = { E: '→', SE: '↘', S: '↓', SW: '↙', W: '←', NW: '↖', N: '↑', NE: '↗' };
+
+export function StatusPanel({ run }: { run: RunState }) {
+  const ch = run.chassis;
+  const held = heldUnits(run);
+  const home = returnCost(run, run.x, run.y);
+  const tight = run.fuel < home * 1.25;
+  const thin = !atBase(run) && run.fuel < returnCost(run, run.x, run.y) * 1.2;
+
+  const gauge = (cls: string, name: string, val: string | number, max: number, extra = '') => (
+    <div className="gauge" key={name}>
+      <div className="gauge-top"><span>{name}</span><b>{val}{extra}</b></div>
+      <div className={`bar ${cls}`}><i style={{ width: `${Math.max(0, Math.min(100, max ? (Number(val) / max) * 100 : 0))}%` }} /></div>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="sect">
+        <div className="lbl">Proxy</div>
+        {gauge('b-fuel', 'Fuel', run.fuel.toFixed(1), ch.fuelCap, ` / ${ch.fuelCap}`)}
+        {gauge('b-sink', 'Sink', run.sink, ch.sinkCap, ` / ${ch.sinkCap}`)}
+        {gauge('b-hold', 'Hold', held, ch.hold, ` / ${ch.hold}u`)}
+        {gauge('b-energy', 'Claim left', run.energy, run.energyStart, ` / ${run.energyStart}u`)}
+        {thin && (
+          <div style={{ color: 'var(--danger)', fontSize: 11, margin: '-4px 0 8px' }}>
+            Fuel is thin — you may not make it back
+          </div>
+        )}
+      </div>
+      <div className="sect">
+        <div className="lbl">Position</div>
+        <div className="derived">
+          <div><span>Fuel home</span><b style={{ color: tight ? 'var(--danger)' : 'var(--text)' }}>{home.toFixed(1)}</b></div>
+          <div><span>Heading</span><b>{run.dir || '—'}</b></div>
+          <div><span>Hauls made</span><b>{run.trip - 1}</b></div>
+          <div><span>Survey</span><b>{CFG.SURVEY[run.survey].label}</b></div>
+          <div><span>Pings used</span><b>{run.pings}</b></div>
+          <div><span>Contacts held</span><b>{run.contacts.length}</b></div>
+          <div><span>Banked</span><b>{run.banked.reduce((n, o) => n + o.units, 0)}u</b></div>
+          <div><span>Carrying</span><b>{held}u</b></div>
+        </div>
+      </div>
+      <div className="sect">
+        <div className="lbl">Grade key</div>
+        <div className="derived">
+          {[1, 2, 3, 4].map(t => (
+            <div key={t}><span style={{ color: `var(--g${t})` }}>■ grade {t}</span><b>{CFG.GRADE_VALUE[t]} / unit</b></div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function RunField({ run, onMove }: { run: RunState; onMove: (dir: DirKey) => void }) {
+  const px = Math.max(20, Math.min(38, Math.floor(620 / CFG.W)));
+  const fs = Math.max(9, Math.round(px * 0.32));
+
+  const reach = new Set<number>();
+  if (run.status === 'active') {
+    for (const k of Object.keys(DIRS) as DirKey[]) {
+      const nx = run.x + DIRS[k][0], ny = run.y + DIRS[k][1];
+      if (inBounds(nx, ny)) reach.add(idx(nx, ny));
+    }
+  }
+
+  const cells = [];
+  for (let y = 0; y < CFG.H; y++) {
+    for (let x = 0; x < CFG.W; x++) {
+      const c = run.cells[idx(x, y)];
+      const isBase = x === run.base.x && y === run.base.y;
+      const known = c.known;
+      let cls = 'cell';
+      if (isBase) cls += ' base';
+      else if (!known) cls += ' unknown';
+      else if (c.seam) cls += ' seam';
+      else if (c.tier > 0) cls += ` ore t${c.tier}`;
+      else if (c.cavern) cls += ' cavern';
+      else if (c.dug) cls += ' tunnel';
+      if (known && c.dug && c.tier > 0) cls += ' cut';
+      const isReach = reach.has(idx(x, y));
+      if (isReach) cls += ' reach';
+      const text = isBase ? 'BASE'
+        : !known ? ''
+        : c.seam ? '▨'
+        : c.tier > 0 ? String(c.units)
+        : c.cavern ? '○'
+        : c.dug ? '·' : '';
+      const dir: DirKey = x > run.x ? 'E' : x < run.x ? 'W' : y > run.y ? 'S' : 'N';
+      cells.push(
+        <div
+          key={`${x}:${y}`}
+          className={cls}
+          tabIndex={isReach ? 0 : undefined}
+          onClick={isReach ? () => onMove(dir) : undefined}
+          onKeyDown={isReach ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMove(dir); } } : undefined}
+        >
+          {text}
+          {known && c.hazard > 0 && !isBase && <span className={`haz${c.gas ? ' gas' : ''}`}>{c.hazard}</span>}
+          {x === run.x && y === run.y && <span className="proxy" />}
+        </div>
+      );
+    }
+  }
+
+  const fieldStyle = {
+    gridTemplateColumns: `repeat(${CFG.W}, ${px}px)`,
+    '--px': `${px}px`,
+    '--fs': `${fs}px`,
+  } as React.CSSProperties;
+
+  const gx = (v: number) => 4 + v * (px + 2) + px / 2;
+
+  return (
+    <>
+      <div className="field" style={fieldStyle}>{cells}</div>
+      {run.status === 'active' && run.contacts.map(k => {
+        const r = Math.max(px * 0.62, (k.blur + 0.45) * px);
+        return (
+          <div
+            key={k.key}
+            className={`contact${k.survey ? ' surveyed' : ''}`}
+            style={{ left: gx(k.x), top: gx(k.y), width: r * 2, height: r * 2, opacity: Math.max(0.30, 0.85 - k.blur * 0.18) }}
+          >
+            <span>
+              {k.mass}u
+              {!k.survey && <><br />{`g${k.lo === k.hi ? k.lo : `${k.lo}–${k.hi}`}`}</>}
+            </span>
+          </div>
+        );
+      })}
+      {run.status === 'active' && run.bearing && (
+        <div className="bearing"><b>{ARROWS[run.bearing.dir]}</b> strong return · {run.bearing.mass}u</div>
+      )}
+    </>
+  );
+}
+
+interface RunControlsProps {
+  run: RunState;
+  lastMsg: string;
+  onExtract: () => void;
+  onPing: () => void;
+  onEnd: () => void;
+}
+
+export function RunControls({ run, lastMsg, onExtract, onPing, onEnd }: RunControlsProps) {
+  const here = run.status === 'active' ? cellAt(run, run.x, run.y) : null;
+  const canCut = !!here && here.tier > 0 && !here.spent && run.status === 'active';
+  const based = run.status === 'active' && atBase(run);
+  const cd = Math.max(0, run.pingReady - run.step);
+  const canPing = run.status === 'active' && cd === 0 && run.fuel >= run.chassis.pingFuel;
+
+  return (
+    <>
+      <div className="controls">
+        <button className="cbtn" disabled={!canCut} onClick={onExtract}>
+          Extract {here && here.tier ? `(${here.units}u g${here.tier})` : ''}
+        </button>
+        <button className="cbtn ping" disabled={!canPing} onClick={onPing}>
+          {cd ? `Sensors ${cd}` : `Ping (${run.chassis.pingFuel.toFixed(1)} fuel)`}
+        </button>
+        <button className="cbtn warn" disabled={!based} onClick={onEnd}>End run</button>
+      </div>
+      <div className="hint">
+        {lastMsg || (run.status === 'active'
+          ? 'Arrows or WASD move · E extract · P ping · sensors find metal, never terrain · reach BASE to unload'
+          : '')}
+      </div>
+    </>
+  );
+}
+
+export function RunLedger({ run }: { run: RunState }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [run.log.length]);
+
+  const rows = run.log.slice(-160);
+  return (
+    <div className="ledger" ref={ref}>
+      {rows.length === 0 ? (
+        <div><span className="n">—</span><span>no moves yet</span><span></span></div>
+      ) : rows.map(l => (
+        <div key={l.n}>
+          <span className="n">{l.n}</span>
+          <span className={l.k === 'ex' ? 'ex' : l.k === 'bad' ? 'bad' : l.k === 'good' ? 'good' : ''}>{l.t}</span>
+          <span className="c">{l.c ? `-${l.c.toFixed(2)}` : ''}</span>
+        </div>
+      ))}
+    </div>
+  );
+}

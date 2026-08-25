@@ -16,14 +16,17 @@ export default async function RootLayout({
       <body>
         <header className="shell-nav">
           <Link href="/" className="brand">
-            Your Studio Name
+            Proxy Games
           </Link>
           <nav>
             <Link href="/games">Games</Link>
             {player ? (
-              <span className="account">
-                {player.display_name ?? player.email}
-              </span>
+              <div className="account">
+                <span>{player.display_name ?? player.email}</span>
+                <form action="/api/auth/logout" method="POST">
+                  <button type="submit">Sign out</button>
+                </form>
+              </div>
             ) : (
               <Link href="/login">Sign in</Link>
             )}
