@@ -1,9 +1,11 @@
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/db/client';
 import { currentPlayer } from '@/lib/auth';
 
-// POST — save a completed run. Requires a session; this is the "enter your
-// email to save this run" moment, not a login wall in front of playing.
+// POST — save a completed run and settle its net against the player's
+// balance. Requires a session; this is the "enter your email to save this
+// run" moment, not a login wall in front of playing.
 //
 // Body: { game, seed, config, status, units, grade, net, moveLog }
 //
@@ -21,19 +23,31 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { game, seed, config, status, units, grade, net, moveLog } = body;
 
-  if (!game || typeof seed !== 'number' || !status) {
+  if (!game || typeof seed !== 'number' || !status || typeof net !== 'number') {
     return NextResponse.json({ error: 'missing fields' }, { status: 400 });
   }
 
-  const [row] = await sql`
-    insert into runs (player_id, game, seed, config, status, units, grade, net, move_log)
-    values (
-      ${player.id}, ${game}, ${seed}, ${JSON.stringify(config)},
-      ${status}, ${units ?? 0}, ${grade ?? null}, ${net},
-      ${JSON.stringify(moveLog ?? [])}
-    )
-    returning id, played_at
-  `;
+  // The run's id is generated here (not by the DB default) so the ledger row
+  // can reference it in the same atomic batch — the balance itself is one
+  // shared pool across every game, `game` here just records where this
+  // particular delta came from.
+  const runId = randomUUID();
+  const [[row]] = await sql.transaction([
+    sql`
+      insert into runs (id, player_id, game, seed, config, status, units, grade, net, move_log)
+      values (
+        ${runId}, ${player.id}, ${game}, ${seed}, ${JSON.stringify(config)},
+        ${status}, ${units ?? 0}, ${grade ?? null}, ${net},
+        ${JSON.stringify(moveLog ?? [])}
+      )
+      returning id, played_at
+    `,
+    sql`
+      insert into balance_transactions (player_id, game, reason, delta, run_id)
+      values (${player.id}, ${game}, 'run_net', ${net}, ${runId})
+    `,
+    sql`update players set balance = balance + ${net} where id = ${player.id}`,
+  ]);
 
   return NextResponse.json({ ok: true, runId: row.id });
 }

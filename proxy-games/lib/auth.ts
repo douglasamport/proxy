@@ -75,7 +75,7 @@ export async function currentPlayer() {
   if (!sid) return null;
 
   const [row] = await sql`
-    select p.id, p.email, p.display_name
+    select p.id, p.email, p.display_name, p.balance
     from sessions s
     join players p on p.id = s.player_id
     where s.id = ${sid} and s.expires_at > now()
@@ -83,7 +83,8 @@ export async function currentPlayer() {
   if (!row) return null;
 
   await sql`update players set last_seen_at = now() where id = ${row.id}`;
-  return row as { id: string; email: string; display_name: string | null };
+  // numeric comes back as a string — exact, no float rounding on a money value.
+  return row as { id: string; email: string; display_name: string | null; balance: string };
 }
 
 // Ends the current session: deletes the session row (so a copied/leaked

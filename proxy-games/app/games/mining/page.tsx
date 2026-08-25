@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import './mining.css';
 import { CFG, applyEnd, applyExtract, applyMove, applyPing, chassisFrom, createRun, applySurvey, score } from './engine';
 import type { Alloc, DirKey, RunState, SurveyTier } from './engine';
@@ -23,6 +24,7 @@ const KEYMAP: Record<string, DirKey> = {
 const SHOW_SEED_CONTROLS = process.env.NODE_ENV !== 'production';
 
 export default function MiningPage() {
+  const router = useRouter();
   const [seed, setSeed] = useState(4471);
   const [alloc, setAlloc] = useState<Alloc>({ ...PRESETS[0][1] });
   const [claim, setClaim] = useState(CFG.ENERGY);
@@ -125,6 +127,12 @@ export default function MiningPage() {
         if (res.status === 401) { setSaveState('signed-out'); return; }
         if (!res.ok) { setSaveState('error'); return; }
         setSaveState('saved');
+        // The header's balance is a Server Component read once on page load —
+        // nothing about ending a run (a purely client-side state change)
+        // would otherwise tell it to re-fetch. This refreshes server-rendered
+        // parts of the tree (header included) without touching this page's
+        // own client state (run, phase, etc. are untouched).
+        router.refresh();
       })
       .catch(() => { if (!cancelled) setSaveState('error'); });
 
