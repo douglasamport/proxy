@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
-import { CFG, chassisFrom, fieldDims, surveyReport } from './engine';
-import type { Alloc, SurveyReport, SurveyTier } from './engine';
+import { useEffect, useMemo, useState } from 'react';
+import { CFG, chassisFrom, fieldDims } from '@/lib/mining-engine';
+import type { Alloc, SurveyReport, SurveyTier } from '@/lib/mining-engine';
 
 export const PRESETS: [string, Alloc, string][] = [
   ['Balanced',   {fuel:4,cargo:3,armour:2,drive:3,steer:2,sensor:2,analyser:0}, 'The reference rig. Nothing outstanding, nothing missing.'],
@@ -35,7 +35,7 @@ interface FittingPanelProps {
   alloc: Alloc;
   claim: number;
   survey: SurveyTier;
-  seed: number;
+  runId: string | null;
   onAllocChange: (alloc: Alloc) => void;
   onClaimChange: (claim: number) => void;
   onSurveyChange: (survey: SurveyTier) => void;
@@ -43,10 +43,10 @@ interface FittingPanelProps {
 }
 
 // Order matches the decisions a player actually makes, in order: the field
-// is assigned (the seed), then buy a survey or skip it, then buy a claim
-// size, then fit out equipment, then launch.
+// is assigned (server-side, before this component ever mounts), then buy a
+// survey or skip it, then buy a claim size, then fit out equipment, then launch.
 export function FittingPanel({
-  alloc, claim, survey, seed,
+  alloc, claim, survey, runId,
   onAllocChange, onClaimChange, onSurveyChange, onLaunch
 }: FittingPanelProps) {
   const ch = useMemo(() => chassisFrom(alloc), [alloc]);
@@ -76,7 +76,7 @@ export function FittingPanel({
           {CFG.SURVEY[survey].note}
           {CFG.SURVEY[survey].cost ? <> <b style={{ color: 'var(--text)' }}>{CFG.SURVEY[survey].cost}</b>.</> : null}
         </div>
-        <ReportPanel seed={seed} survey={survey} />
+        <ReportPanel runId={runId} survey={survey} />
       </div>
 
       <div className="sect">
@@ -138,18 +138,40 @@ export function FittingPanel({
         </div>
       </div>
 
-      <button className="go" onClick={onLaunch}>Launch run</button>
+      <button className="go" onClick={onLaunch} disabled={!runId}>Launch run</button>
     </>
   );
 }
 
-// The report is totals only — never positions. It exists to answer one question:
-// is this face worth 20 energy or 50?
-function ReportPanel({ seed, survey }: { seed: number; survey: SurveyTier }) {
-  const rep = useMemo<SurveyReport | null>(() => surveyReport(seed, survey), [seed, survey]);
-  if (!rep) {
+// The report is totals only — never positions. It exists to answer one
+// question: is this face worth 20 energy or 50? Fetched fresh per tier —
+// the server is the only thing that knows the seed this preview reads from.
+function ReportPanel({ runId, survey }: { runId: string | null; survey: SurveyTier }) {
+  const [rep, setRep] = useState<SurveyReport | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!runId || survey === 'none') { setRep(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/runs/${runId}/survey`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: survey }),
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res))
+      .then(data => { if (!cancelled) { setRep(data.report); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [runId, survey]);
+
+  if (survey === 'none') {
     return <div className="report none">No survey filed. You will not know what this face holds until you are standing in it.</div>;
   }
+  if (loading || !rep) {
+    return <div className="report none">Reading survey…</div>;
+  }
+
   const f = rep.fuzz;
   const band = (v: number, unit: string) => f
     ? `${Math.round(v * (1 - f) / 5) * 5}–${Math.round(v * (1 + f) / 5) * 5}${unit}`

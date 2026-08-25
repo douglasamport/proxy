@@ -1,17 +1,19 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { CFG, DIRS, atBase, cellAt, heldUnits, idx, inBounds, returnCost } from './engine';
-import type { DirKey, RunState } from './engine';
+import { CFG, DIRS, idx, inBounds } from '@/lib/mining-engine';
+import type { DirKey } from '@/lib/mining-engine';
+import type { PublicRunView } from '@/lib/mining-run-store';
+import { atBase, heldUnits } from './view';
 
 const ARROWS: Record<string, string> = { E: '→', SE: '↘', S: '↓', SW: '↙', W: '←', NW: '↖', N: '↑', NE: '↗' };
 
-export function StatusPanel({ run }: { run: RunState }) {
+export function StatusPanel({ run }: { run: PublicRunView }) {
   const ch = run.chassis;
   const held = heldUnits(run);
-  const home = returnCost(run, run.x, run.y);
+  const home = run.homeCost;
   const tight = run.fuel < home * 1.25;
-  const thin = !atBase(run) && run.fuel < returnCost(run, run.x, run.y) * 1.2;
+  const thin = !atBase(run) && run.fuel < home * 1.2;
 
   const gauge = (cls: string, name: string, val: string | number, max: number, extra = '') => (
     <div className="gauge" key={name}>
@@ -70,7 +72,7 @@ export function StatusPanel({ run }: { run: RunState }) {
   );
 }
 
-export function RunField({ run, onMove }: { run: RunState; onMove: (dir: DirKey) => void }) {
+export function RunField({ run, onMove }: { run: PublicRunView; onMove: (dir: DirKey) => void }) {
   const px = Math.max(20, Math.min(38, Math.floor(620 / CFG.W)));
   const fs = Math.max(9, Math.round(px * 0.32));
 
@@ -155,7 +157,7 @@ export function RunField({ run, onMove }: { run: RunState; onMove: (dir: DirKey)
 }
 
 interface RunControlsProps {
-  run: RunState;
+  run: PublicRunView;
   lastMsg: string;
   onExtract: () => void;
   onPing: () => void;
@@ -163,8 +165,11 @@ interface RunControlsProps {
 }
 
 export function RunControls({ run, lastMsg, onExtract, onPing, onEnd }: RunControlsProps) {
-  const here = run.status === 'active' ? cellAt(run, run.x, run.y) : null;
-  const canCut = !!here && here.tier > 0 && !here.spent && run.status === 'active';
+  const here = run.status === 'active' ? run.cells[idx(run.x, run.y)] : null;
+  // A fully-extracted cell always has tier reset to 0 in the same step it's
+  // marked spent (see applyExtract in the engine), so tier > 0 alone is
+  // already a complete "can still cut here" check.
+  const canCut = !!here && here.tier > 0 && run.status === 'active';
   const based = run.status === 'active' && atBase(run);
   const cd = Math.max(0, run.pingReady - run.step);
   const canPing = run.status === 'active' && cd === 0 && run.fuel >= run.chassis.pingFuel;
@@ -189,7 +194,7 @@ export function RunControls({ run, lastMsg, onExtract, onPing, onEnd }: RunContr
   );
 }
 
-export function RunLedger({ run }: { run: RunState }) {
+export function RunLedger({ run }: { run: PublicRunView }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;

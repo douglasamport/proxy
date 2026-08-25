@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import './mining.css';
-import { CFG, applyEnd, applyExtract, applyMove, applyPing, chassisFrom, createRun, applySurvey, score } from './engine';
-import type { Alloc, DirKey, RunState, SurveyTier } from './engine';
+import { CFG } from '@/lib/mining-engine';
+import type { Alloc, DirKey, RunStatus, ScoreResult, SurveyTier } from '@/lib/mining-engine';
+import type { PublicRunView } from '@/lib/mining-run-store';
 import { FittingPanel, PRESETS } from './FittingPanel';
 import { InfoPanel } from './InfoPanel';
 import { RunControls, RunField, RunLedger, StatusPanel } from './RunScreen';
 import { ResultsModal } from './ResultsModal';
-import type { SaveState } from './ResultsModal';
 
 type Phase = 'fit' | 'run';
 
@@ -20,76 +20,121 @@ const KEYMAP: Record<string, DirKey> = {
 
 // Seed control (manual entry + reseed) is dev-only: production players get a
 // silently-randomized field and have to make claim/survey decisions based on
-// what they're given, not what they can dial in.
+// what they're given, not what they can dial in. The server enforces this
+// too (see app/api/runs/field/route.ts) — this is a UI convenience, not the
+// actual security boundary.
 const SHOW_SEED_CONTROLS = process.env.NODE_ENV !== 'production';
+
+interface EndResult {
+  status: RunStatus;
+  seed: number;
+  energyStart: number;
+  you: ScoreResult;
+  ai: ScoreResult;
+}
+
+async function postJSON<T>(url: string, body?: unknown): Promise<{ ok: true; data: T } | { ok: false; status: number }> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, data: await res.json() };
+}
 
 export default function MiningPage() {
   const router = useRouter();
-  const [seed, setSeed] = useState(4471);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [devSeedInput, setDevSeedInput] = useState('');
   const [alloc, setAlloc] = useState<Alloc>({ ...PRESETS[0][1] });
   const [claim, setClaim] = useState(CFG.ENERGY);
   const [survey, setSurvey] = useState<SurveyTier>('none');
   const [phase, setPhase] = useState<Phase>('fit');
-  const [run, setRun] = useState<RunState | null>(null);
+  const [view, setView] = useState<PublicRunView | null>(null);
   const [lastMsg, setLastMsg] = useState('');
-  const [saveState, setSaveState] = useState<SaveState>('idle');
-  const submittedRunRef = useRef<RunState | null>(null);
+  const [results, setResults] = useState<EndResult | null>(null);
+  const busyRef = useRef(false);
+  const endingRef = useRef(false);
 
-  // Randomized client-side, after mount, so the server-rendered HTML and the
-  // first client render still match (no hydration mismatch from Math.random).
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: this is the standard fix for "random value diverges between server and client", not a synchronization smell.
-    setSeed(Math.floor(Math.random() * 9000) + 1000);
+  const assignField = useCallback(async (seedOverride?: number) => {
+    const r = await postJSON<{ runId: string }>('/api/runs/field', {
+      game: 'mining',
+      ...(seedOverride !== undefined ? { seed: seedOverride } : {}),
+    });
+    if (!r.ok) {
+      if (r.status === 401) setAuthRequired(true);
+      return;
+    }
+    setAuthRequired(false);
+    setRunId(r.data.runId);
+    setPhase('fit');
+    setView(null);
+    setResults(null);
+    endingRef.current = false;
   }, []);
 
-  function handleLaunch() {
-    const chassis = chassisFrom(alloc);
-    const next = applySurvey(createRun(seed, chassis, claim), survey);
-    setRun(next);
+  useEffect(() => { assignField(); }, [assignField]);
+
+  async function handleLaunch() {
+    if (!runId) return;
+    const r = await postJSON<PublicRunView>(`/api/runs/${runId}/launch`, { alloc, claim, survey });
+    if (!r.ok) { setLastMsg('Could not launch — try again.'); return; }
+    setView(r.data);
     setPhase('run');
     setLastMsg('');
-    setSaveState('idle');
-    submittedRunRef.current = null;
   }
 
   function handleReseed() {
-    setSeed(Math.floor(Math.random() * 9000) + 1000);
-    setPhase('fit');
+    const parsed = parseInt(devSeedInput, 10);
+    assignField(Number.isFinite(parsed) ? parsed : undefined);
   }
 
   function handleRefit() {
-    setPhase('fit');
-    setLastMsg('');
+    assignField();
   }
 
+  const runAction = useCallback(async (path: string, body?: unknown) => {
+    if (!runId || busyRef.current) return;
+    busyRef.current = true;
+    const r = await postJSON<{ view: PublicRunView; err?: string }>(`/api/runs/${runId}/${path}`, body);
+    busyRef.current = false;
+    if (!r.ok) { setLastMsg('Request failed — try again.'); return; }
+    setLastMsg(r.data.err || '');
+    setView(r.data.view);
+  }, [runId]);
+
   const doMove = useCallback((dir: DirKey) => {
-    if (!run || run.status !== 'active') return;
-    const r = applyMove(run, dir);
-    setLastMsg(r.err || '');
-    setRun(r.s);
-  }, [run]);
-  const doExtract = useCallback(() => {
-    if (!run) return;
-    const r = applyExtract(run);
-    setLastMsg(r.err || '');
-    setRun(r.s);
-  }, [run]);
-  const doPing = useCallback(() => {
-    if (!run) return;
-    const r = applyPing(run);
-    setLastMsg(r.err || '');
-    setRun(r.s);
-  }, [run]);
-  function doEnd() {
-    if (!run) return;
-    const r = applyEnd(run);
-    setLastMsg(r.err || '');
-    setRun(r.s);
-  }
+    if (!view || view.status !== 'active') return;
+    runAction('move', { direction: dir });
+  }, [view, runAction]);
+
+  const doExtract = useCallback(() => { runAction('extract'); }, [runAction]);
+  const doPing = useCallback(() => { runAction('ping'); }, [runAction]);
+
+  const doEnd = useCallback(async () => {
+    if (!runId || endingRef.current) return;
+    endingRef.current = true;
+    const r = await postJSON<EndResult>(`/api/runs/${runId}/end`);
+    if (!r.ok) { endingRef.current = false; setLastMsg('Could not end run — try again.'); return; }
+    setResults(r.data);
+    router.refresh(); // balance changed — refresh the header's server-rendered figure
+  }, [runId, router]);
+
+  // Auto-end: applyMove/applyExtract/applyPing can themselves terminate a
+  // run (fuel dry -> stranded, fatal hazard -> wrecked), not just the
+  // explicit End Run button. Whenever the view shows a non-active status
+  // and we haven't already settled it, close it out the same way.
+  useEffect(() => {
+    if (view && view.status !== 'active' && !results && !endingRef.current) {
+      doEnd();
+    }
+  }, [view, results, doEnd]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (phase !== 'run' || !run || run.status !== 'active') return;
+      if (phase !== 'run' || !view || view.status !== 'active') return;
       const dir = KEYMAP[e.key];
       if (dir) { e.preventDefault(); doMove(dir); }
       else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); doExtract(); }
@@ -97,47 +142,22 @@ export default function MiningPage() {
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [phase, run, doMove, doExtract, doPing]);
+  }, [phase, view, doMove, doExtract, doPing]);
 
-  useEffect(() => {
-    if (!run || run.status === 'active') return;
-    if (submittedRunRef.current === run) return;
-    submittedRunRef.current = run;
-
-    const s = score(run);
-    let cancelled = false;
-    setSaveState('saving');
-
-    fetch('/api/runs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        game: 'mining',
-        seed: run.seed,
-        config: { alloc: run.chassis.alloc, claim: run.energyStart, survey: run.survey },
-        status: run.status,
-        units: s.units,
-        grade: s.grade,
-        net: s.net,
-        moveLog: run.log,
-      }),
-    })
-      .then(res => {
-        if (cancelled) return;
-        if (res.status === 401) { setSaveState('signed-out'); return; }
-        if (!res.ok) { setSaveState('error'); return; }
-        setSaveState('saved');
-        // The header's balance is a Server Component read once on page load —
-        // nothing about ending a run (a purely client-side state change)
-        // would otherwise tell it to re-fetch. This refreshes server-rendered
-        // parts of the tree (header included) without touching this page's
-        // own client state (run, phase, etc. are untouched).
-        router.refresh();
-      })
-      .catch(() => { if (!cancelled) setSaveState('error'); });
-
-    return () => { cancelled = true; };
-  }, [run]);
+  if (authRequired) {
+    return (
+      <div className="mining-root">
+        <header><div className="brand">Extraction <span>/ run prototype</span></div></header>
+        <main className="fit-layout">
+          <div className="fit-controls sect">
+            <div className="lbl">Sign in required</div>
+            <p>Live run state now lives server-side against your account, so playing (not just saving) needs you signed in.</p>
+            <a className="go" href="/login" style={{ display: 'inline-block', textDecoration: 'none', textAlign: 'center' }}>Sign in</a>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="mining-root">
@@ -147,8 +167,9 @@ export default function MiningPage() {
           <>
             <div className="seedline">
               seed <input
-                value={seed}
-                onChange={e => setSeed(parseInt(e.target.value, 10) || 1)}
+                placeholder="random"
+                value={devSeedInput}
+                onChange={e => setDevSeedInput(e.target.value)}
               />
             </div>
             <button className="hbtn" onClick={handleReseed}>New field</button>
@@ -164,7 +185,7 @@ export default function MiningPage() {
               alloc={alloc}
               claim={claim}
               survey={survey}
-              seed={seed}
+              runId={runId}
               onAllocChange={setAlloc}
               onClaimChange={setClaim}
               onSurveyChange={setSurvey}
@@ -178,27 +199,34 @@ export default function MiningPage() {
       ) : (
         <main className="run-layout">
           <div className="col">
-            {run && <StatusPanel run={run} />}
+            {view && <StatusPanel run={view} />}
           </div>
 
           <div className="col mid">
             <div className="fieldwrap">
-              {run && <RunField run={run} onMove={doMove} />}
+              {view && <RunField run={view} onMove={doMove} />}
             </div>
-            {run && (
-              <RunControls run={run} lastMsg={lastMsg} onExtract={doExtract} onPing={doPing} onEnd={doEnd} />
+            {view && (
+              <RunControls run={view} lastMsg={lastMsg} onExtract={doExtract} onPing={doPing} onEnd={doEnd} />
             )}
           </div>
 
           <div className="col">
             <div className="lbl">Run ledger</div>
-            {run && <RunLedger run={run} />}
+            {view && <RunLedger run={view} />}
           </div>
         </main>
       )}
 
-      {phase === 'run' && run && run.status !== 'active' && (
-        <ResultsModal run={run} onAgain={handleRefit} saveState={saveState} />
+      {results && (
+        <ResultsModal
+          status={results.status}
+          seed={results.seed}
+          energyStart={results.energyStart}
+          you={results.you}
+          ai={results.ai}
+          onAgain={handleRefit}
+        />
       )}
     </div>
   );

@@ -1,8 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
-import { runAI, score } from './engine';
-import type { RunState } from './engine';
+import type { RunStatus, ScoreResult } from '@/lib/mining-engine';
 
 const VERDICT: Record<string, [string, string]> = {
   banked: ['Run banked', 'var(--ok)'],
@@ -30,24 +28,27 @@ function Row({ name, a, b, fmt = (v: number) => v.toFixed(0), invert = false }: 
   );
 }
 
-export type SaveState = 'idle' | 'saving' | 'saved' | 'signed-out' | 'error';
-
 interface ResultsModalProps {
-  run: RunState;
+  status: RunStatus;
+  seed: number;
+  energyStart: number;
+  you: ScoreResult;
+  ai: ScoreResult;
   onAgain: () => void;
-  saveState: SaveState;
 }
 
-export function ResultsModal({ run, onAgain, saveState }: ResultsModalProps) {
-  const you = useMemo(() => score(run), [run]);
-  const ai = useMemo(() => score(runAI(run.seed, run.chassis, run.energyStart)), [run]);
-  const [vtxt, vcol] = VERDICT[run.status] || ['Run over', 'var(--dim)'];
+// Everything here is what the server computed and returned from
+// POST /api/runs/[id]/end — this component doesn't run score() or runAI()
+// itself, since both need the seed, which the client only ever learns once
+// the run is already over (see lib/mining-run-store.ts).
+export function ResultsModal({ status, seed, energyStart, you, ai, onAgain }: ResultsModalProps) {
+  const [vtxt, vcol] = VERDICT[status] || ['Run over', 'var(--dim)'];
 
   return (
     <div className="scrim">
       <div className="card">
         <div className="verdict" style={{ color: vcol }}>{vtxt}</div>
-        <h2>You vs. autopilot · seed {run.seed} · {run.energyStart}E claim</h2>
+        <h2>You vs. autopilot · seed {seed} · {energyStart}E claim</h2>
         <table>
           <thead><tr><th>Metric</th><th>You</th><th>Autopilot</th><th></th></tr></thead>
           <tbody>
@@ -57,6 +58,7 @@ export function ResultsModal({ run, onAgain, saveState }: ResultsModalProps) {
             <Row name="Average grade" a={you.grade} b={ai.grade} fmt={v => v.toFixed(2)} />
             <Row name="Gross revenue" a={you.revenue} b={ai.revenue} />
             <Row name="Survey" a={you.surveyCost} b={ai.surveyCost} invert />
+            <Row name="Claim cost" a={you.claimCost} b={ai.claimCost} invert />
             <Row name="Total cost" a={you.cost} b={ai.cost} invert />
             <Row name="Cost per unit" a={you.costPerUnit} b={ai.costPerUnit} fmt={v => v.toFixed(2)} invert />
             <Row name="Net" a={you.net} b={ai.net} />
@@ -69,9 +71,7 @@ export function ResultsModal({ run, onAgain, saveState }: ResultsModalProps) {
           </div>
         )}
         <div className="note">Tonnage is capped by the day&rsquo;s energy. <b>Cost per unit</b> and <b>average grade</b> are where skill shows.</div>
-        {saveState === 'saved' && <div className="note" style={{ color: 'var(--ok)' }}>Run saved to your history.</div>}
-        {saveState === 'signed-out' && <div className="note">Sign in to save runs to your history and the leaderboard.</div>}
-        {saveState === 'error' && <div className="note" style={{ color: 'var(--danger)' }}>Couldn&rsquo;t save this run — try again later.</div>}
+        <div className="note" style={{ color: 'var(--ok)' }}>Run saved to your history.</div>
         <button className="go" onClick={onAgain} autoFocus>Refit &amp; run again</button>
       </div>
     </div>

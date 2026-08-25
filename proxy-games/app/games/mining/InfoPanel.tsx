@@ -1,4 +1,4 @@
-import { CFG } from "./engine";
+import { CFG } from "@/lib/mining-engine";
 
 // The reference panel — how a run works, plus the full terrain/hazard/grade
 // key. Split out from FittingPanel so it can take the wide half of the
