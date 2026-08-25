@@ -61,3 +61,52 @@ Nothing here needs a scheduled job yet — the flat daily-energy design from
 Mechanics v1 hasn't been wired in. When it is, that's where a Railway cron
 or a free-tier scheduler triggers the daily reset; this scaffold has
 nowhere that assumes a particular cron provider.
+
+## Roadmap
+
+Ordered by what's best for gameplay, not by what's easiest to build.
+Organizing the run into sections is deliberately first — everything below it
+either extends that flow or needs it stable before it's worth building on.
+
+1. **Break the run into explicit sections.** Right now the fitting screen
+   ([app/games/mining/FittingPanel.tsx](app/games/mining/FittingPanel.tsx))
+   is one flat panel doing presets, hull volume, claim size, and survey
+   all at once. Split it into a real sequence a player moves through:
+   get assigned a field → buy a survey or skip it → choose/buy a claim
+   size → fit out equipment → play the run. This is a UX/flow
+   restructuring of the existing fitting phase, not new mechanics.
+
+2. **Basic tutorial.** Once the run has real sections, walk a new player
+   through them once — what a claim is, what a survey buys you, why
+   tunnels matter, how a run ends. Cheap to build against a sectioned
+   flow; expensive to maintain if built before the flow settles, so it
+   comes right after #1 and gets revisited once hazards/bonuses and the
+   store below exist.
+
+3. **Persistent player currency.** Nothing currently survives a run —
+   `net` is computed and saved to `runs.net`
+   ([app/api/runs/route.ts](app/api/runs/route.ts)) but never
+   accumulated anywhere a player can spend it. Add a real balance (a
+   `players.balance` column or a ledger table), credit it from a
+   banked run's net, and wire the header's `$0` placeholder
+   ([components/Header.tsx](components/Header.tsx)) to it. This is the
+   unlock for everything below — claims, surveys, and the store only
+   mean something once there's real money on the line.
+
+4. **Hazards and bonuses.** The engine already generates hazard cells and
+   gas pockets ([app/games/mining/engine.ts](app/games/mining/engine.ts),
+   see `CFG.GAS_PER_100`/`CFG.GAS_MULT` and the hazard rolls inside
+   `generateField`), but there's no genuine "bonus" side yet — no lucky
+   pockets, temporary buffs, or upside to balance the risk. Expand hazard
+   variety and add real bonus mechanics to deepen the core run loop now
+   that runs have real stakes.
+
+5. **Equipment store.** Spend the now-real currency on upgrades or slots
+   that persist between runs, instead of every run starting from the
+   same preset allocation. This is what makes money something to build
+   toward, not just a number that goes up.
+
+6. **Levels.** A progression layer on top of currency + store +
+   hazards/bonuses — needs its own design pass on what a level actually
+   gates or unlocks. Placed last because it depends on the systems above
+   being in place to have anything meaningful to progress through.

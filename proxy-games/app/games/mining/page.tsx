@@ -5,6 +5,7 @@ import './mining.css';
 import { CFG, applyEnd, applyExtract, applyMove, applyPing, chassisFrom, createRun, applySurvey, score } from './engine';
 import type { Alloc, DirKey, RunState, SurveyTier } from './engine';
 import { FittingPanel, PRESETS } from './FittingPanel';
+import { InfoPanel } from './InfoPanel';
 import { RunControls, RunField, RunLedger, StatusPanel } from './RunScreen';
 import { ResultsModal } from './ResultsModal';
 import type { SaveState } from './ResultsModal';
@@ -16,16 +17,28 @@ const KEYMAP: Record<string, DirKey> = {
   w: 'N', s: 'S', a: 'W', d: 'E', W: 'N', S: 'S', A: 'W', D: 'E'
 };
 
+// Seed control (manual entry + reseed) is dev-only: production players get a
+// silently-randomized field and have to make claim/survey decisions based on
+// what they're given, not what they can dial in.
+const SHOW_SEED_CONTROLS = process.env.NODE_ENV !== 'production';
+
 export default function MiningPage() {
   const [seed, setSeed] = useState(4471);
   const [alloc, setAlloc] = useState<Alloc>({ ...PRESETS[0][1] });
   const [claim, setClaim] = useState(CFG.ENERGY);
-  const [survey, setSurvey] = useState<SurveyTier>('basic');
+  const [survey, setSurvey] = useState<SurveyTier>('none');
   const [phase, setPhase] = useState<Phase>('fit');
   const [run, setRun] = useState<RunState | null>(null);
   const [lastMsg, setLastMsg] = useState('');
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const submittedRunRef = useRef<RunState | null>(null);
+
+  // Randomized client-side, after mount, so the server-rendered HTML and the
+  // first client render still match (no hydration mismatch from Math.random).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: this is the standard fix for "random value diverges between server and client", not a synchronization smell.
+    setSeed(Math.floor(Math.random() * 9000) + 1000);
+  }, []);
 
   function handleLaunch() {
     const chassis = chassisFrom(alloc);
@@ -122,19 +135,23 @@ export default function MiningPage() {
     <div className="mining-root">
       <header>
         <div className="brand">Extraction <span>/ run prototype</span></div>
-        <div className="seedline">
-          seed <input
-            value={seed}
-            onChange={e => setSeed(parseInt(e.target.value, 10) || 1)}
-          />
-        </div>
-        <button className="hbtn" onClick={handleReseed}>New field</button>
+        {SHOW_SEED_CONTROLS && (
+          <>
+            <div className="seedline">
+              seed <input
+                value={seed}
+                onChange={e => setSeed(parseInt(e.target.value, 10) || 1)}
+              />
+            </div>
+            <button className="hbtn" onClick={handleReseed}>New field</button>
+          </>
+        )}
         <button className="hbtn" onClick={handleRefit} disabled={phase === 'fit'}>Refit</button>
       </header>
 
-      <main>
-        <div className="col">
-          {phase === 'fit' ? (
+      {phase === 'fit' ? (
+        <main className="fit-layout">
+          <div className="fit-controls">
             <FittingPanel
               alloc={alloc}
               claim={claim}
@@ -145,30 +162,32 @@ export default function MiningPage() {
               onSurveyChange={setSurvey}
               onLaunch={handleLaunch}
             />
-          ) : run ? (
-            <StatusPanel run={run} />
-          ) : null}
-        </div>
-
-        <div className="col mid">
-          <div className="fieldwrap">
-            {phase === 'run' && run && <RunField run={run} onMove={doMove} />}
           </div>
-          {phase === 'run' && run ? (
-            <RunControls run={run} lastMsg={lastMsg} onExtract={doExtract} onPing={doPing} onEnd={doEnd} />
-          ) : (
-            <>
-              <div className="controls" />
-              <div className="hint">Spend hull volume, claim your energy, then start the day. Same volume, different machine.</div>
-            </>
-          )}
-        </div>
+          <div className="fit-info">
+            <InfoPanel claim={claim} />
+          </div>
+        </main>
+      ) : (
+        <main className="run-layout">
+          <div className="col">
+            {run && <StatusPanel run={run} />}
+          </div>
 
-        <div className="col">
-          <div className="lbl">Run ledger</div>
-          {phase === 'run' && run ? <RunLedger run={run} /> : <div className="ledger" />}
-        </div>
-      </main>
+          <div className="col mid">
+            <div className="fieldwrap">
+              {run && <RunField run={run} onMove={doMove} />}
+            </div>
+            {run && (
+              <RunControls run={run} lastMsg={lastMsg} onExtract={doExtract} onPing={doPing} onEnd={doEnd} />
+            )}
+          </div>
+
+          <div className="col">
+            <div className="lbl">Run ledger</div>
+            {run && <RunLedger run={run} />}
+          </div>
+        </main>
+      )}
 
       {phase === 'run' && run && run.status !== 'active' && (
         <ResultsModal run={run} onAgain={handleRefit} saveState={saveState} />

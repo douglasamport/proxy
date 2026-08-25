@@ -55,6 +55,17 @@ export function StatusPanel({ run }: { run: RunState }) {
           ))}
         </div>
       </div>
+      <div className="sect">
+        <div className="lbl">Field key</div>
+        <div className="keyrow"><span className="sw rock"></span>unbroken rock</div>
+        <div className="keyrow"><span className="sw tun"></span>tunnel — cheap to re-cross</div>
+        <div className="keyrow"><span className="sw cav"></span>cavern — open ground, free to enter</div>
+        <div className="keyrow"><span className="sw sem"></span>hard seam — cannot be cut</div>
+        <div className="keyrow"><span className="sw haz">3</span>hazard, sink cost on first cut</div>
+        <div className="keyrow"><span className="sw haz gas2">8</span>gas pocket, far worse</div>
+        <div className="keyrow"><span className="sw con"></span>sensor contact — fuzzy until triangulated</div>
+        <div className="keyrow"><span className="sw sur"></span>survey contact — no fix yet</div>
+      </div>
     </>
   );
 }

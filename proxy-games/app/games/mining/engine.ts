@@ -118,6 +118,7 @@ export interface RunState {
   refuels: number;
   survey: SurveyTier;
   surveyCost: number;
+  claimCost: number;
   contacts: Contact[];
   pings: number;
   pingReady: number;
@@ -148,6 +149,7 @@ export interface ScoreResult {
   cost: number;
   launch: number;
   surveyCost: number;
+  claimCost: number;
   survey: SurveyTier;
   trips: number;
   energyLeft: number;
@@ -238,9 +240,14 @@ export const CFG = {
   // Surveys: bought before the run. They locate metal, never terrain, never grade.
   SURVEY: {
     none:  { cost:0,   blur:0,   label:'None',     note:'Go in blind. Cheapest, and the only way to be surprised.' },
-    basic: { cost:35, blur:3.2, label:'Basic',    note:'Pocket count and mass. Positions very rough.' },
-    full:  { cost:100, blur:1.7, label:'Detailed', note:'Same, at workable resolution. Still no grade, still no terrain.' }
+    basic: { cost:50, blur:3.2, label:'Basic',    note:'Pocket count and mass. Positions very rough.' },
+    full:  { cost:120, blur:1.7, label:'Detailed', note:'Same, at workable resolution. Still no grade, still no terrain.' }
   } as Record<SurveyTier, SurveySpec>,
+  // Claim size is its own purchase now, on top of the flat launch cost —
+  // bigger claims still cost less per unit (30/20 vs 55/50), same lesson
+  // as before, just with a real price tag on the choice itself.
+  CLAIM_OPTIONS: [20, 35, 50],
+  CLAIM_COST: { 20: 30, 35: 45, 50: 55 } as Record<number, number>,
   AI_SURVEY: 'basic' as SurveyTier,   // unattended runs always buy one — that is what a survey is for
   AI_MARGIN: 1.40,     // absolute floor: don't cut ore that fails to cover its own fuel
   AI_REACH: 0.20,      // and never travel further than this share of the tank for ANY ore,
@@ -435,6 +442,7 @@ export function createRun(seed: number, chassis: Chassis, energy?: number): RunS
   const dims = fieldDims();
   CFG.W = dims.W; CFG.H = dims.H;   // prototype: field dims are global per run
   const f = generateField(seed);
+  const claim = energy ?? CFG.ENERGY;
   return {
     seed, chassis,
     cells: f.cells, base: f.base,
@@ -442,7 +450,7 @@ export function createRun(seed: number, chassis: Chassis, energy?: number): RunS
     dir: null,
     fuel: chassis.fuelCap,
     sink: chassis.sinkCap,
-    energy: energy ?? CFG.ENERGY,
+    energy: claim,
     carrying: [],          // {tier, units}
     banked: [],
     fuelUsed: 0,
@@ -451,12 +459,13 @@ export function createRun(seed: number, chassis: Chassis, energy?: number): RunS
     refuels: 0,
     survey: 'none',
     surveyCost: 0,
+    claimCost: CFG.CLAIM_COST[claim] ?? 0,
     contacts: [],        // fuzzy sensor returns, sharpened by repeat pings
     pings: 0,
     pingReady: 0,        // step index when the next ping is allowed
     bearing: null,       // direction of the strongest return beyond range
     seen: new Set(),     // cells the pilot has actually cut or stood beside
-    energyStart: energy ?? CFG.ENERGY,
+    energyStart: claim,
     log: [],
     status: 'active',      // active | banked | stranded | wrecked
     step: 0
@@ -766,10 +775,10 @@ export function score(s: RunState): ScoreResult {
   const revenue = value * CFG.ORE_PRICE;
   const fuelCost = s.fuelUsed * CFG.FUEL_PRICE;
   const repair  = s.sinkLost * CFG.REPAIR_PER_SINK;
-  const cost = fuelCost + repair + CFG.LAUNCH_COST + (s.surveyCost || 0);
+  const cost = fuelCost + repair + CFG.LAUNCH_COST + (s.surveyCost || 0) + (s.claimCost || 0);
   return {
     units, value, revenue, fuelCost, repair, cost, launch: CFG.LAUNCH_COST,
-    surveyCost: s.surveyCost || 0, survey: s.survey,
+    surveyCost: s.surveyCost || 0, claimCost: s.claimCost || 0, survey: s.survey,
     trips: s.trip,
     energyLeft: s.energy,
     energyUsed: s.energyStart - s.energy,

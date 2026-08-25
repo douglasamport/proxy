@@ -27,8 +27,6 @@ const ROWS: [keyof Alloc, string, string][] = [
   ['analyser', 'Analyser',   `narrows the grade estimate`]
 ];
 
-const CLAIM_OPTIONS = [20, 35, 50];
-
 function sameAlloc(a: Alloc, b: Alloc) {
   return SYSTEMS.every(k => (a[k] || 0) === (b[k] || 0));
 }
@@ -44,6 +42,9 @@ interface FittingPanelProps {
   onLaunch: () => void;
 }
 
+// Order matches the decisions a player actually makes, in order: the field
+// is assigned (the seed), then buy a survey or skip it, then buy a claim
+// size, then fit out equipment, then launch.
 export function FittingPanel({
   alloc, claim, survey, seed,
   onAllocChange, onClaimChange, onSurveyChange, onLaunch
@@ -53,6 +54,7 @@ export function FittingPanel({
   const left = CFG.VOLUME_TOTAL - volUsed;
   const dims = fieldDims();
   const activePreset = PRESETS.find(([, a]) => sameAlloc(alloc, a));
+  const claimCost = CFG.CLAIM_COST[claim] ?? 0;
 
   function step(key: keyof Alloc, d: number) {
     if (d > 0 && volUsed >= CFG.VOLUME_TOTAL) return;
@@ -62,7 +64,39 @@ export function FittingPanel({
   return (
     <>
       <div className="sect">
-        <div className="lbl">Preset rigs</div>
+        <div className="lbl">Survey</div>
+        <div className="claims">
+          {(Object.keys(CFG.SURVEY) as SurveyTier[]).map(k => (
+            <button key={k} className={`claimbtn ${k === survey ? 'on' : ''}`} onClick={() => onSurveyChange(k)}>
+              {CFG.SURVEY[k].label}
+            </button>
+          ))}
+        </div>
+        <div className="ptip">
+          {CFG.SURVEY[survey].note}
+          {CFG.SURVEY[survey].cost ? <> <b style={{ color: 'var(--text)' }}>{CFG.SURVEY[survey].cost}</b>.</> : null}
+        </div>
+        <ReportPanel seed={seed} survey={survey} />
+      </div>
+
+      <div className="sect">
+        <div className="lbl">Claim for this run · max {CFG.ENERGY_MAX}</div>
+        <div className="claims">
+          {CFG.CLAIM_OPTIONS.map(v => (
+            <button key={v} className={`claimbtn ${v === claim ? 'on' : ''}`} onClick={() => onClaimChange(v)}>{v}E</button>
+          ))}
+        </div>
+        <div className="ptip">Claiming this size costs <b style={{ color: 'var(--text)' }}>{claimCost}</b> up front.</div>
+        <div className="derived" style={{ marginTop: 8 }}>
+          <div><span>Target</span><b>{claim}u of ore</b></div>
+          <div><span>Claim cost</span><b>{claimCost}</b></div>
+          <div><span>Hauls to carry it</span><b>~{Math.ceil(claim / ch.hold)}</b></div>
+          <div><span>Site size</span><b>{dims.W} × {dims.H}</b></div>
+        </div>
+      </div>
+
+      <div className="sect build-section">
+        <div className="lbl">Build</div>
         <div className="presets">
           {PRESETS.map(([name, a, tip]) => (
             <button
@@ -76,10 +110,7 @@ export function FittingPanel({
           ))}
         </div>
         <div className="ptip">{activePreset ? activePreset[2] : 'Custom fitting.'}</div>
-      </div>
 
-      <div className="sect">
-        <div className="lbl">Hull volume</div>
         {ROWS.map(([k, name, sub]) => (
           <div className="fit-row" key={k}>
             <div className="fit-name">{name}<small>{sub}</small></div>
@@ -91,10 +122,7 @@ export function FittingPanel({
           </div>
         ))}
         <div className="vol"><span>Unallocated</span><b>{left}</b></div>
-      </div>
 
-      <div className="sect">
-        <div className="lbl">Derived</div>
         <div className="derived">
           <div><span>Hold per trip</span><b>{ch.hold}u</b></div>
           <div><span>Fuel capacity</span><b>{ch.fuelCap.toFixed(0)}</b></div>
@@ -110,64 +138,7 @@ export function FittingPanel({
         </div>
       </div>
 
-      <div className="sect">
-        <div className="lbl">Claim for this run · max {CFG.ENERGY_MAX}</div>
-        <div className="claims">
-          {CLAIM_OPTIONS.map(v => (
-            <button key={v} className={`claimbtn ${v === claim ? 'on' : ''}`} onClick={() => onClaimChange(v)}>{v}E</button>
-          ))}
-        </div>
-        <div className="derived" style={{ marginTop: 8 }}>
-          <div><span>Target</span><b>{claim}u of ore</b></div>
-          <div><span>Hauls to carry it</span><b>~{Math.ceil(claim / ch.hold)}</b></div>
-          <div><span>Mobilisation, per unit</span><b>{(CFG.LAUNCH_COST / claim).toFixed(1)}</b></div>
-          <div><span>Site size</span><b>{dims.W} × {dims.H}</b></div>
-        </div>
-
-        <div className="lbl" style={{ marginTop: 16 }}>Survey</div>
-        <div className="claims">
-          {(Object.keys(CFG.SURVEY) as SurveyTier[]).map(k => (
-            <button key={k} className={`claimbtn ${k === survey ? 'on' : ''}`} onClick={() => onSurveyChange(k)}>
-              {CFG.SURVEY[k].label}
-            </button>
-          ))}
-        </div>
-        <div className="ptip">
-          {CFG.SURVEY[survey].note}
-          {CFG.SURVEY[survey].cost ? <> <b style={{ color: 'var(--text)' }}>{CFG.SURVEY[survey].cost}</b>.</> : null}
-        </div>
-
-        <ReportPanel seed={seed} survey={survey} />
-
-        <button className="go" onClick={onLaunch}>Launch run</button>
-      </div>
-
-      <div className="sect key">
-        <div className="lbl">How a run works</div>
-        <p>You claim <b>{claim} units</b> of ore for this run — one energy each. <b>One tank of fuel, no resupply.</b> Fall short and you&rsquo;ve burnt a whole tank for a partial load.</p>
-        <p>Claiming big is cheaper per unit — mobilising the rig costs the same either way, so {claim}u carries it at <b>{(CFG.LAUNCH_COST / claim).toFixed(1)}</b> a unit. Claiming small is safe and expensive. That&rsquo;s the bet.</p>
-        <p>Your hold only carries {ch.hold}u, so you&rsquo;ll drive back to base to unload and head out again — <i>on the same tank</i>. Those return trips are what tunnels pay for.</p>
-        <p>Cutting fresh rock costs full price plus a dig surcharge. Re-crossing a tunnel you already cut costs {Math.round(CFG.TUNNEL_MULT * 100)}% — so early trips pay for later ones, and the network compounds all day.</p>
-        <p><b>You cannot see the ground.</b> Rock, hard seams, gas and caverns are only ever learned by cutting into them, or by standing next to them.</p>
-        <p><b>Sensors detect metal, not terrain.</b> A ping costs fuel and shows ore pockets as fuzzy contacts — mass reads true, position is a guess, and grade comes back only as a range. Ping the same pocket again from a different angle and the fix tightens. The analyser is what narrows the grade estimate.</p>
-        <p>A <b>survey</b> filed before launch reports <i>totals only</i> — how much ore the face holds, roughly how deep it sits, how much of it is high grade. Never positions. It exists so you can decide how much of your day to claim, and what to strap on before you go. You still fly blind.</p>
-        <p>Beyond ping range you get a single <b>bearing</b> to the strongest return. Direction only. No distance.</p>
-        <p><b>Hard seams cannot be dug.</b> Route around them. <b>Gas pockets</b> hit far harder than ordinary ground. <b>Caverns</b> are already open — free to enter and cheap to cross, and finding one mid-shaft is the best thing that can happen to a run.</p>
-        <p><b>Turning costs fuel.</b> Straight lines are cheap; weaving is not. Steering is what makes weaving affordable.</p>
-        <p><b>Hazards</b> bite once, when you first cut the cell, and take sink. At zero sink the proxy is wrecked. Rich ore tends to sit near bad ground.</p>
-        <p><b>Ore is only yours once it&rsquo;s banked.</b> Drive back to BASE to unload, then go out again if fuel remains. Run dry in the field and everything you&rsquo;re carrying is lost, along with the energy spent lifting it.</p>
-        <div className="keyrow"><span className="sw t1"></span>grade 1 · {CFG.GRADE_VALUE[1]}/u</div>
-        <div className="keyrow"><span className="sw t2"></span>grade 2 · {CFG.GRADE_VALUE[2]}/u</div>
-        <div className="keyrow"><span className="sw t3"></span>grade 3 · {CFG.GRADE_VALUE[3]}/u</div>
-        <div className="keyrow"><span className="sw t4"></span>grade 4 · {CFG.GRADE_VALUE[4]}/u</div>
-        <div className="keyrow"><span className="sw rock"></span>unbroken rock</div>
-        <div className="keyrow"><span className="sw tun"></span>tunnel — cheap to re-cross</div>
-        <div className="keyrow"><span className="sw cav"></span>cavern — open ground, free to enter</div>
-        <div className="keyrow"><span className="sw sem"></span>hard seam — cannot be cut</div>
-        <div className="keyrow"><span className="sw haz">3</span>hazard, sink cost on first cut</div>
-        <div className="keyrow"><span className="sw haz gas2">8</span>gas pocket, far worse</div>
-        <div className="keyrow"><span className="sw con"></span>sensor contact — fuzzy until triangulated</div>
-      </div>
+      <button className="go" onClick={onLaunch}>Launch run</button>
     </>
   );
 }
