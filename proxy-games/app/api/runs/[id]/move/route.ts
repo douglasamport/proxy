@@ -7,7 +7,7 @@ import type { DirKey } from '@/lib/mining-engine';
 const VALID_DIRS: DirKey[] = ['N', 'S', 'E', 'W'];
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const player = await currentPlayer();
+  const player = await currentPlayer({ touch: false });
   if (!player) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
 
   const { id } = await params;

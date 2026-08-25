@@ -68,8 +68,13 @@ export async function verifyToken(token: string) {
 }
 
 // Call this at the top of any route/page that needs to know who's logged in.
-// Also stamps last_seen_at — this single line is the day-two-return metric.
-export async function currentPlayer() {
+// By default also stamps last_seen_at — the day-two-return metric — which
+// costs a second DB round trip. Pass { touch: false } for hot-path calls
+// (game action routes hit once per click) where that write is pure overhead:
+// the stamp still happens whenever the player is on a page at all, since
+// every page render goes through Header -> currentPlayer() with the default.
+export async function currentPlayer(opts: { touch?: boolean } = {}) {
+  const { touch = true } = opts;
   const jar = await cookies();
   const sid = jar.get(SESSION_COOKIE)?.value;
   if (!sid) return null;
@@ -82,7 +87,9 @@ export async function currentPlayer() {
   `;
   if (!row) return null;
 
-  await sql`update players set last_seen_at = now() where id = ${row.id}`;
+  if (touch) {
+    await sql`update players set last_seen_at = now() where id = ${row.id}`;
+  }
   // numeric comes back as a string — exact, no float rounding on a money value.
   return row as { id: string; email: string; display_name: string | null; balance: string };
 }

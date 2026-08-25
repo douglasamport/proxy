@@ -15,7 +15,7 @@ import { applyEnd, runAI, score } from '@/lib/mining-engine';
 // is included in the response for the first time here, since the run is
 // now over and safe to disclose (see db/003_in_progress_runs.sql).
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const player = await currentPlayer();
+  const player = await currentPlayer({ touch: false });
   if (!player) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
 
   const { id } = await params;

@@ -11,7 +11,7 @@ const VALID_TIERS: SurveyTier[] = ['none', 'basic', 'full'];
 // mutate the run. Only ever returns totals (pocket count, mass, depth);
 // never cell positions, same as the pure surveyReport() function itself.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const player = await currentPlayer();
+  const player = await currentPlayer({ touch: false });
   if (!player) {
     return NextResponse.json({ error: 'not signed in' }, { status: 401 });
   }

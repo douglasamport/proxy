@@ -31,7 +31,7 @@ function validateAlloc(alloc: unknown): Alloc | null {
 // Validates alloc and claim server-side, computes chassis, creates the live
 // state, and flips the row from 'fitting' to 'active'.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const player = await currentPlayer();
+  const player = await currentPlayer({ touch: false });
   if (!player) {
     return NextResponse.json({ error: 'not signed in' }, { status: 401 });
   }

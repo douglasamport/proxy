@@ -12,7 +12,7 @@ import { currentPlayer } from '@/lib/auth';
 // the same reason the dev-only seed input exists in the UI: hiding a
 // control client-side isn't a security boundary, this is the actual gate.
 export async function POST(req: NextRequest) {
-  const player = await currentPlayer();
+  const player = await currentPlayer({ touch: false });
   if (!player) {
     return NextResponse.json({ error: 'not signed in' }, { status: 401 });
   }
