@@ -75,7 +75,18 @@ export default function MiningPage() {
     endingRef.current = false;
   }, []);
 
-  useEffect(() => { assignField(); }, [assignField]);
+  // Guarded against React Strict Mode's dev-only double-invoke of mount
+  // effects: assignField() deletes-then-inserts server-side, so firing it
+  // twice on mount is a real race (two concurrent requests, whichever
+  // response resolves last can leave runId pointing at a row the other
+  // request's cleanup already deleted). This ref makes the second
+  // invocation a no-op regardless of timing.
+  const didAssignRef = useRef(false);
+  useEffect(() => {
+    if (didAssignRef.current) return;
+    didAssignRef.current = true;
+    assignField();
+  }, [assignField]);
 
   async function handleLaunch() {
     if (!runId) return;

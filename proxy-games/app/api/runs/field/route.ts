@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/db/client';
 import { currentPlayer } from '@/lib/auth';
+import { settleAbandonedRuns } from '@/lib/mining-run-store';
 
 // POST { game, seed? } -> { runId }
 //
@@ -27,6 +28,13 @@ export async function POST(req: NextRequest) {
   const seed = process.env.NODE_ENV !== 'production' && typeof requestedSeed === 'number'
     ? requestedSeed
     : Math.floor(Math.random() * 9000) + 1000;
+
+  // Settle any run that already ended (fuel dry, wrecked, or a rejected
+  // manual end) but was never reported — otherwise a player could just
+  // never let the client call /end and dodge a bad outcome indefinitely.
+  // Runs still genuinely in progress are untouched; abandoning those has
+  // always been free and stays that way.
+  await settleAbandonedRuns(player.id, game);
 
   // A player can only be mid-fitting on one field per game at a time —
   // clear out any abandoned ones (nothing was ever spent on them).

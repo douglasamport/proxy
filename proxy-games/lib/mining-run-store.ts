@@ -1,6 +1,7 @@
+import { randomUUID } from 'crypto';
 import { sql } from '@/db/client';
-import { CFG, atBase, heldUnits, returnCost } from './mining-engine';
-import type { Cell, Chassis, Contact, DirKey, LogEntry, OreLoad, RunState, RunStatus, SurveyTier } from './mining-engine';
+import { CFG, atBase, heldUnits, returnCost, runAI, score } from './mining-engine';
+import type { Cell, Chassis, Contact, DirKey, LogEntry, OreLoad, RunState, RunStatus, ScoreResult, SurveyTier } from './mining-engine';
 
 // Server-side row for an in-progress run. `state` is the full authoritative
 // RunState (only present once phase === 'active') — this never leaves the
@@ -134,6 +135,60 @@ export async function applyActiveAction(
   const saved = await saveActiveState(id, expectedStep, r.s);
   if (!saved) return { kind: 'conflict' };
   return { kind: 'ok', view: toPublicView(id, r.s), err: r.err };
+}
+
+// Scores both sides, writes the run + a balance_transactions ledger row +
+// the players.balance update atomically, and deletes the in_progress_runs
+// row. `state.status` must already be terminal — this doesn't call
+// applyEnd(), it settles a run that has already ended one way or another.
+// Shared by POST /api/runs/[id]/end (the player explicitly ending, or the
+// client noticing an auto-terminated run) and settleAbandonedRuns() below
+// (a run that ended and was simply never reported).
+export async function settleRun(row: RunRow, state: RunState): Promise<{ you: ScoreResult; ai: ScoreResult }> {
+  const you = score(state);
+  const ai = score(runAI(state.seed, state.chassis, state.energyStart));
+
+  const runId = randomUUID();
+  await sql.transaction([
+    sql`
+      insert into runs (id, player_id, game, seed, config, status, units, grade, net, move_log)
+      values (
+        ${runId}, ${row.player_id}, ${row.game}, ${state.seed},
+        ${JSON.stringify({ alloc: state.chassis.alloc, claim: state.energyStart, survey: state.survey })},
+        ${state.status}, ${you.units}, ${you.grade}, ${you.net},
+        ${JSON.stringify(state.log)}
+      )
+    `,
+    sql`
+      insert into balance_transactions (player_id, game, reason, delta, run_id)
+      values (${row.player_id}, ${row.game}, 'run_net', ${you.net}, ${runId})
+    `,
+    sql`update players set balance = balance + ${you.net} where id = ${row.player_id}`,
+  ]);
+
+  await sql`delete from in_progress_runs where id = ${row.id}`;
+
+  return { you, ai };
+}
+
+// A run's status can go terminal (fuel dry -> stranded, fatal hazard ->
+// wrecked) without the client ever calling /end — blocking that one request
+// client-side is all it'd take to dodge a loss forever otherwise. Called
+// before handing out a new field (see app/api/runs/field/route.ts) so a
+// player can't just walk away from a bad outcome and start fresh unsettled.
+// Deliberately does NOT touch rows still genuinely status: 'active' —
+// abandoning a run you don't like mid-play has always been free and stays
+// that way; this only catches outcomes that already happened.
+export async function settleAbandonedRuns(playerId: string, game: string): Promise<void> {
+  const rows = await sql`
+    select id, player_id, game, seed, phase, alloc, claim, survey, state
+    from in_progress_runs
+    where player_id = ${playerId} and game = ${game} and phase = 'active'
+      and state->>'status' <> 'active'
+  `;
+  for (const row of rows as RunRow[]) {
+    await settleRun(row, deserializeState(row.state));
+  }
 }
 
 export { CFG, atBase, heldUnits };
