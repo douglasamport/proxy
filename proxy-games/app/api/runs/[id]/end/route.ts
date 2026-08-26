@@ -36,5 +36,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { you, ai } = await settleRun(loaded.row, r.s);
 
-  return NextResponse.json({ view: toPublicView(id, r.s), you, ai, seed: r.s.seed });
+  return NextResponse.json({
+    view: toPublicView(id, r.s),
+    you, ai,
+    seed: r.s.seed,
+    energyStart: r.s.energyStart,
+    status: r.s.status,
+  });
 }

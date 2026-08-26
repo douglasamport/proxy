@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/db/client';
 import { currentPlayer } from '@/lib/auth';
-import { loadFittingRun } from '@/lib/mining-run-store';
-import { toPublicView } from '@/lib/mining-run-store';
+import { loadFittingRun, toPublicView } from '@/lib/mining-run-store';
 import { CFG, applySurvey, chassisFrom, createRun } from '@/lib/mining-engine';
-import type { Alloc, SurveyTier } from '@/lib/mining-engine';
+import type { Alloc } from '@/lib/mining-engine';
 
 const SYSTEMS: (keyof Alloc)[] = ['fuel', 'cargo', 'armour', 'drive', 'steer', 'sensor', 'analyser'];
-const VALID_TIERS: SurveyTier[] = ['none', 'basic', 'full'];
 
 // The client sends its chosen `alloc` — not a derived chassis. Computing
 // chassis stats server-side from a validated allocation is what stops a
@@ -27,9 +25,13 @@ function validateAlloc(alloc: unknown): Alloc | null {
   return out as Alloc;
 }
 
-// POST { alloc, claim, survey } -> the initial PublicRunView for the run.
+// POST { alloc, claim } -> the initial PublicRunView for the run.
 // Validates alloc and claim server-side, computes chassis, creates the live
-// state, and flips the row from 'fitting' to 'active'.
+// state, and flips the row from 'fitting' to 'active'. Survey is NOT read
+// from the request body — it's real money now (see
+// app/api/runs/[id]/survey/route.ts), already recorded on the fitting row
+// the moment it was paid for. Trusting a client-submitted tier here would
+// let someone pay for Basic and apply Detailed for free.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const player = await currentPlayer({ touch: false });
   if (!player) {
@@ -47,7 +49,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!CFG.CLAIM_OPTIONS.includes(claim)) {
     return NextResponse.json({ error: 'invalid claim size' }, { status: 400 });
   }
-  const survey: SurveyTier = VALID_TIERS.includes(body.survey) ? body.survey : 'none';
 
   const row = await loadFittingRun(id, player.id);
   if (!row) {
@@ -55,11 +56,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const chassis = chassisFrom(alloc);
-  const state = applySurvey(createRun(row.seed, chassis, claim), survey);
+  const state = applySurvey(createRun(row.seed, chassis, claim), row.survey);
 
   const [saved] = await sql`
     update in_progress_runs
-    set phase = 'active', alloc = ${JSON.stringify(alloc)}::jsonb, claim = ${claim}, survey = ${survey},
+    set phase = 'active', alloc = ${JSON.stringify(alloc)}::jsonb, claim = ${claim},
         state = ${JSON.stringify({ ...state, seen: Array.from(state.seen) })}::jsonb, updated_at = now()
     where id = ${id} and player_id = ${player.id} and phase = 'fitting'
     returning id

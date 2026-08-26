@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { CFG, chassisFrom, fieldDims } from '@/lib/mining-engine';
 import type { Alloc, SurveyReport, SurveyTier } from '@/lib/mining-engine';
 
@@ -16,6 +16,8 @@ export const PRESETS: [string, Alloc, string][] = [
 ];
 
 const SYSTEMS: (keyof Alloc)[] = ['fuel', 'cargo', 'armour', 'drive', 'steer', 'sensor', 'analyser'];
+// 'none' isn't a purchasable tier — it's just the default before anything's bought.
+const SURVEY_TIERS: ('basic' | 'full')[] = ['basic', 'full'];
 
 const ROWS: [keyof Alloc, string, string][] = [
   ['fuel',   'Fuel tank',    `+${CFG.FUEL_PER_UNIT} fuel`],
@@ -35,10 +37,12 @@ interface FittingPanelProps {
   alloc: Alloc;
   claim: number;
   survey: SurveyTier;
+  report: SurveyReport | null;
+  balance: string | null;
   runId: string | null;
   onAllocChange: (alloc: Alloc) => void;
   onClaimChange: (claim: number) => void;
-  onSurveyChange: (survey: SurveyTier) => void;
+  onRequestSurvey: (tier: 'basic' | 'full') => void;
   onLaunch: () => void;
 }
 
@@ -46,8 +50,8 @@ interface FittingPanelProps {
 // is assigned (server-side, before this component ever mounts), then buy a
 // survey or skip it, then buy a claim size, then fit out equipment, then launch.
 export function FittingPanel({
-  alloc, claim, survey, runId,
-  onAllocChange, onClaimChange, onSurveyChange, onLaunch
+  alloc, claim, survey, report, balance, runId,
+  onAllocChange, onClaimChange, onRequestSurvey, onLaunch
 }: FittingPanelProps) {
   const ch = useMemo(() => chassisFrom(alloc), [alloc]);
   const volUsed = SYSTEMS.reduce((n, k) => n + (alloc[k] || 0), 0);
@@ -55,6 +59,7 @@ export function FittingPanel({
   const dims = fieldDims();
   const activePreset = PRESETS.find(([, a]) => sameAlloc(alloc, a));
   const claimCost = CFG.CLAIM_COST[claim] ?? 0;
+  const funds = balance ? Number(balance) : 0;
 
   function step(key: keyof Alloc, d: number) {
     if (d > 0 && volUsed >= CFG.VOLUME_TOTAL) return;
@@ -66,8 +71,13 @@ export function FittingPanel({
       <div className="sect">
         <div className="lbl">Survey</div>
         <div className="claims">
-          {(Object.keys(CFG.SURVEY) as SurveyTier[]).map(k => (
-            <button key={k} className={`claimbtn ${k === survey ? 'on' : ''}`} onClick={() => onSurveyChange(k)}>
+          {SURVEY_TIERS.map(k => (
+            <button
+              key={k}
+              className={`claimbtn ${k === survey ? 'on' : ''}`}
+              disabled={k !== survey && CFG.SURVEY[k].cost > funds}
+              onClick={() => onRequestSurvey(k)}
+            >
               {CFG.SURVEY[k].label}
             </button>
           ))}
@@ -76,17 +86,24 @@ export function FittingPanel({
           {CFG.SURVEY[survey].note}
           {CFG.SURVEY[survey].cost ? <> <b style={{ color: 'var(--text)' }}>{CFG.SURVEY[survey].cost}</b>.</> : null}
         </div>
-        <ReportPanel runId={runId} survey={survey} />
+        <ReportPanel survey={survey} report={report} />
       </div>
 
       <div className="sect">
         <div className="lbl">Claim for this run · max {CFG.ENERGY_MAX}</div>
         <div className="claims">
           {CFG.CLAIM_OPTIONS.map(v => (
-            <button key={v} className={`claimbtn ${v === claim ? 'on' : ''}`} onClick={() => onClaimChange(v)}>{v}E</button>
+            <button
+              key={v}
+              className={`claimbtn ${v === claim ? 'on' : ''}`}
+              disabled={v !== claim && CFG.CLAIM_COST[v] > funds}
+              onClick={() => onClaimChange(v)}
+            >
+              {v}E
+            </button>
           ))}
         </div>
-        <div className="ptip">Claiming this size costs <b style={{ color: 'var(--text)' }}>{claimCost}</b> up front.</div>
+        <div className="ptip">Claiming this size costs <b style={{ color: 'var(--text)' }}>{claimCost}</b>, deducted from this run&rsquo;s net at the end. Freely changeable until you launch.</div>
         <div className="derived" style={{ marginTop: 8 }}>
           <div><span>Target</span><b>{claim}u of ore</b></div>
           <div><span>Claim cost</span><b>{claimCost}</b></div>
@@ -143,34 +160,15 @@ export function FittingPanel({
   );
 }
 
-// The report is totals only — never positions. It exists to answer one
-// question: is this face worth 20 energy or 50? Fetched fresh per tier —
-// the server is the only thing that knows the seed this preview reads from.
-function ReportPanel({ runId, survey }: { runId: string | null; survey: SurveyTier }) {
-  const [rep, setRep] = useState<SurveyReport | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!runId || survey === 'none') { setRep(null); return; }
-    let cancelled = false;
-    setLoading(true);
-    fetch(`/api/runs/${runId}/survey`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tier: survey }),
-    })
-      .then(res => res.ok ? res.json() : Promise.reject(res))
-      .then(data => { if (!cancelled) { setRep(data.report); setLoading(false); } })
-      .catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [runId, survey]);
-
-  if (survey === 'none') {
-    return <div className="report none">No survey filed. You will not know what this face holds until you are standing in it.</div>;
+// Purely presentational now — the report comes from whatever the last
+// successful purchase returned (see SurveyPurchaseModal / page.tsx). No
+// self-fetching: there's nothing to preview for free anymore, a tier isn't
+// "selected", it's bought.
+function ReportPanel({ survey, report }: { survey: SurveyTier; report: SurveyReport | null }) {
+  if (survey === 'none' || !report) {
+    return <div className="report none">No survey bought. You will not know what this face holds until you are standing in it.</div>;
   }
-  if (loading || !rep) {
-    return <div className="report none">Reading survey…</div>;
-  }
+  const rep = report;
 
   const f = rep.fuzz;
   const band = (v: number, unit: string) => f

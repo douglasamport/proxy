@@ -191,4 +191,51 @@ export async function settleAbandonedRuns(playerId: string, game: string): Promi
   }
 }
 
+export type PurchaseResult =
+  | { kind: 'ok'; balance: string }
+  | { kind: 'insufficient_funds' }
+  | { kind: 'not_found' };
+
+// A survey tier is charged immediately on selection now, not folded into
+// the run's net at settlement (see the comment on `cost` in score()).
+// Deliberately two steps, not one sql.transaction(): a conditional UPDATE
+// (`WHERE balance >= cost`) that matches 0 rows doesn't roll back other
+// statements in a transaction batch, it just silently no-ops — so the
+// balance-check has to gate everything else itself, checked before we do
+// anything further. The WHERE clause also means two concurrent purchases
+// (two tabs, a fast double-click) can't both succeed off a stale balance.
+export async function purchaseSurvey(
+  runRowId: string, playerId: string, game: string, tier: SurveyTier, cost: number
+): Promise<PurchaseResult> {
+  const [deducted] = await sql`
+    update players set balance = balance - ${cost}
+    where id = ${playerId} and balance >= ${cost}
+    returning balance
+  `;
+  if (!deducted) return { kind: 'insufficient_funds' };
+
+  const results = await sql.transaction([
+    sql`
+      update in_progress_runs set survey = ${tier}, updated_at = now()
+      where id = ${runRowId} and player_id = ${playerId} and phase = 'fitting'
+      returning id
+    `,
+    sql`
+      insert into balance_transactions (player_id, game, reason, delta)
+      values (${playerId}, ${game}, 'survey_purchase', ${-cost})
+    `,
+  ]);
+
+  const updated = results[0] as { id: string }[];
+  if (!updated.length) {
+    // The fitting row vanished between load and purchase (refit from
+    // another tab, concurrently settled, etc.) — refund rather than
+    // silently keep money for a survey that was never actually recorded.
+    await sql`update players set balance = balance + ${cost} where id = ${playerId}`;
+    return { kind: 'not_found' };
+  }
+
+  return { kind: 'ok', balance: deducted.balance };
+}
+
 export { CFG, atBase, heldUnits };

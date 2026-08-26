@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { currentPlayer } from '@/lib/auth';
-import { loadFittingRun } from '@/lib/mining-run-store';
-import { surveyReport } from '@/lib/mining-engine';
+import { loadFittingRun, purchaseSurvey } from '@/lib/mining-run-store';
+import { CFG, surveyReport } from '@/lib/mining-engine';
 import type { SurveyTier } from '@/lib/mining-engine';
 
-const VALID_TIERS: SurveyTier[] = ['none', 'basic', 'full'];
+// Survey is a real purchase now, not a free preview — 'none' isn't
+// something you buy, it's just the default before you've bought anything.
+const PURCHASABLE_TIERS: SurveyTier[] = ['basic', 'full'];
 
-// POST { tier } -> the aggregate survey report for that tier, computed
-// fresh from the field this run is assigned to. Pure preview — doesn't
-// mutate the run. Only ever returns totals (pocket count, mass, depth);
-// never cell positions, same as the pure surveyReport() function itself.
+// POST { tier } -> { report, balance }
+//
+// Charges immediately, no refund for switching tiers afterward — the
+// player already has the data the moment the purchase succeeds, so there's
+// nothing to "give back". The tier actually paid for is recorded on the
+// fitting row itself; launch reads that, not anything the client sends, so
+// a modified client can't pay for Basic and then apply Detailed for free.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const player = await currentPlayer({ touch: false });
   if (!player) {
@@ -20,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const body = await req.json().catch(() => ({}));
   const tier = body.tier as SurveyTier;
 
-  if (!VALID_TIERS.includes(tier)) {
+  if (!PURCHASABLE_TIERS.includes(tier)) {
     return NextResponse.json({ error: 'invalid tier' }, { status: 400 });
   }
 
@@ -29,6 +34,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'run not found' }, { status: 404 });
   }
 
+  const cost = CFG.SURVEY[tier].cost;
+  const result = await purchaseSurvey(id, player.id, row.game, tier, cost);
+  if (result.kind === 'insufficient_funds') {
+    return NextResponse.json({ error: 'insufficient funds' }, { status: 402 });
+  }
+  if (result.kind === 'not_found') {
+    return NextResponse.json({ error: 'run not found' }, { status: 404 });
+  }
+
   const report = surveyReport(row.seed, tier);
-  return NextResponse.json({ report });
+  return NextResponse.json({ report, balance: result.balance });
 }

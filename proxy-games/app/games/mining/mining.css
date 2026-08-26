@@ -272,6 +272,24 @@
 .mining-root .card .go{margin-top:20px}
 .mining-root .note{margin-top:14px;font-size:11px;color:var(--dim);line-height:1.6}
 
+/* ---- results: manifest (P&L) + collapsed AI-comparison accordion ---- */
+.mining-root .manifest{margin-bottom:0}
+.mining-root .manifest-net{
+  display:flex;justify-content:space-between;align-items:baseline;
+  margin-top:12px;padding-top:10px;border-top:1px solid var(--line);
+  font-size:15px;font-weight:700;
+}
+.mining-root .accordion{margin-top:18px;border-top:1px solid var(--panel-2);padding-top:12px}
+.mining-root .accordion summary{
+  cursor:pointer;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);list-style:none;
+}
+.mining-root .accordion summary::-webkit-details-marker{display:none}
+.mining-root .accordion summary::before{content:'▸ ';color:var(--machine)}
+.mining-root .accordion[open] summary::before{content:'▾ '}
+.mining-root .accordion summary:hover{color:var(--text)}
+.mining-root .accordion table{margin-top:12px}
+
 @media (max-width:1080px){
   .mining-root main.run-layout{grid-template-columns:1fr}
   .mining-root .ledger{height:220px}

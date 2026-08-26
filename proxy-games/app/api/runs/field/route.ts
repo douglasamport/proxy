@@ -46,5 +46,9 @@ export async function POST(req: NextRequest) {
     returning id
   `;
 
-  return NextResponse.json({ runId: row.id });
+  // Re-read balance rather than reuse player.balance from above —
+  // settleAbandonedRuns() may have just changed it.
+  const [{ balance }] = await sql`select balance from players where id = ${player.id}`;
+
+  return NextResponse.json({ runId: row.id, balance });
 }

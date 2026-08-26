@@ -4,12 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import './mining.css';
 import { CFG } from '@/lib/mining-engine';
-import type { Alloc, DirKey, RunStatus, ScoreResult, SurveyTier } from '@/lib/mining-engine';
+import type { Alloc, DirKey, RunStatus, ScoreResult, SurveyReport, SurveyTier } from '@/lib/mining-engine';
 import type { PublicRunView } from '@/lib/mining-run-store';
 import { FittingPanel, PRESETS } from './FittingPanel';
 import { InfoPanel } from './InfoPanel';
 import { RunControls, RunField, RunLedger, StatusPanel } from './RunScreen';
 import { ResultsModal } from './ResultsModal';
+import { SurveyPurchaseModal } from './SurveyPurchaseModal';
 
 type Phase = 'fit' | 'run';
 
@@ -51,6 +52,11 @@ export default function MiningPage() {
   const [alloc, setAlloc] = useState<Alloc>({ ...PRESETS[0][1] });
   const [claim, setClaim] = useState(CFG.ENERGY);
   const [survey, setSurvey] = useState<SurveyTier>('none');
+  const [surveyReport, setSurveyReport] = useState<SurveyReport | null>(null);
+  const [balance, setBalance] = useState<string | null>(null);
+  const [pendingSurveyTier, setPendingSurveyTier] = useState<'basic' | 'full' | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
+  const [fitError, setFitError] = useState('');
   const [phase, setPhase] = useState<Phase>('fit');
   const [view, setView] = useState<PublicRunView | null>(null);
   const [lastMsg, setLastMsg] = useState('');
@@ -59,7 +65,7 @@ export default function MiningPage() {
   const endingRef = useRef(false);
 
   const assignField = useCallback(async (seedOverride?: number) => {
-    const r = await postJSON<{ runId: string }>('/api/runs/field', {
+    const r = await postJSON<{ runId: string; balance: string }>('/api/runs/field', {
       game: 'mining',
       ...(seedOverride !== undefined ? { seed: seedOverride } : {}),
     });
@@ -69,6 +75,10 @@ export default function MiningPage() {
     }
     setAuthRequired(false);
     setRunId(r.data.runId);
+    setBalance(r.data.balance);
+    setSurvey('none');
+    setSurveyReport(null);
+    setFitError('');
     setPhase('fit');
     setView(null);
     setResults(null);
@@ -90,11 +100,37 @@ export default function MiningPage() {
 
   async function handleLaunch() {
     if (!runId) return;
-    const r = await postJSON<PublicRunView>(`/api/runs/${runId}/launch`, { alloc, claim, survey });
+    // survey isn't sent — the server applies whatever tier was actually
+    // paid for (see app/api/runs/[id]/launch/route.ts), not anything from
+    // here, since a client claim about it can't be trusted for real money.
+    const r = await postJSON<PublicRunView>(`/api/runs/${runId}/launch`, { alloc, claim });
     if (!r.ok) { setLastMsg('Could not launch — try again.'); return; }
     setView(r.data);
     setPhase('run');
     setLastMsg('');
+  }
+
+  function requestSurveyPurchase(tier: 'basic' | 'full') {
+    if (tier === survey) return; // already bought, nothing to do
+    setPendingSurveyTier(tier);
+  }
+
+  async function confirmSurveyPurchase() {
+    if (!runId || !pendingSurveyTier) return;
+    const tier = pendingSurveyTier;
+    setPurchasing(true);
+    const r = await postJSON<{ report: SurveyReport; balance: string }>(`/api/runs/${runId}/survey`, { tier });
+    setPurchasing(false);
+    setPendingSurveyTier(null);
+    if (!r.ok) {
+      setFitError(r.status === 402 ? 'Not enough balance for that survey.' : 'Could not buy survey — try again.');
+      return;
+    }
+    setFitError('');
+    setSurvey(tier);
+    setSurveyReport(r.data.report);
+    setBalance(r.data.balance);
+    router.refresh(); // balance changed — refresh the header's server-rendered figure
   }
 
   function handleReseed() {
@@ -192,14 +228,17 @@ export default function MiningPage() {
       {phase === 'fit' ? (
         <main className="fit-layout">
           <div className="fit-controls">
+            {fitError && <div className="ptip" style={{ color: 'var(--danger)' }}>{fitError}</div>}
             <FittingPanel
               alloc={alloc}
               claim={claim}
               survey={survey}
+              report={surveyReport}
+              balance={balance}
               runId={runId}
               onAllocChange={setAlloc}
               onClaimChange={setClaim}
-              onSurveyChange={setSurvey}
+              onRequestSurvey={requestSurveyPurchase}
               onLaunch={handleLaunch}
             />
           </div>
@@ -227,6 +266,15 @@ export default function MiningPage() {
             {view && <RunLedger run={view} />}
           </div>
         </main>
+      )}
+
+      {pendingSurveyTier && (
+        <SurveyPurchaseModal
+          tier={pendingSurveyTier}
+          busy={purchasing}
+          onConfirm={confirmSurveyPurchase}
+          onCancel={() => setPendingSurveyTier(null)}
+        />
       )}
 
       {results && (
