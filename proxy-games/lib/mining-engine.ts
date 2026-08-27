@@ -773,6 +773,10 @@ export function applyMove(state: RunState, dirKey: DirKey): ApplyResult {
     s.sink -= cell.hazard;
     s.sinkLost += cell.hazard;
     note += ` · hazard ${cell.hazard}`;
+    // Spent the instant it's triggered — never affects sink again, and
+    // this is also what the map reads to show the danger badge/overlay
+    // (see RunScreen.tsx), so both disappear now that it's been dealt with.
+    cell.hazard = 0;
     if (s.sink <= 0) {
       s.sink = 0;
       s.status = "wrecked";
@@ -785,7 +789,7 @@ export function applyMove(state: RunState, dirKey: DirKey): ApplyResult {
     n: ++s.step,
     t: note,
     c: cost,
-    k: cell.hazard > 0 ? "bad" : fresh ? "" : "tun",
+    k: hadHazard ? "bad" : fresh ? "" : "tun",
   });
 
   if (atBase(s)) unloadInto(s);

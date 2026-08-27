@@ -7,6 +7,9 @@ import type { PublicRunView } from '@/lib/mining-run-store';
 import { atBase, heldUnits } from './view';
 
 const ARROWS: Record<string, string> = { E: '→', SE: '↘', S: '↓', SW: '↙', W: '←', NW: '↖', N: '↑', NE: '↗' };
+// Rotation for the heading indicator — drawn facing "up" (North) by
+// default in CSS, rotated clockwise from there to the real heading.
+const DIR_ANGLE: Record<DirKey, number> = { N: 0, E: 90, S: 180, W: 270 };
 
 export function StatusPanel({ run }: { run: PublicRunView }) {
   const ch = run.chassis;
@@ -98,6 +101,17 @@ export function RunField({ run, onMove }: { run: PublicRunView; onMove: (dir: Di
       else if (c.cavern) cls += ' cavern';
       else if (c.dug) cls += ' tunnel';
       if (known && c.dug && c.tier > 0) cls += ' cut';
+      // Caverns are dug:true the instant they're discovered (free ground),
+      // so this naturally never fires for them — exactly the exception asked
+      // for. Seams are excluded explicitly: they're permanent obstacles,
+      // already visually distinct, and can never be "dug" at all.
+      if (known && !c.dug && !c.seam) cls += ' undug';
+      // Same visibility rule as the .haz badge itself: hazard is a
+      // property of the cell, discovered once and shown from then on
+      // (matches the badge already persisting after a hazard's been
+      // triggered — see applyMove in mining-engine.ts, hazard isn't
+      // cleared on entry, only its one-time damage is).
+      if (known && c.hazard > 0 && !isBase) cls += ` hazard${c.gas ? ' gas' : ''}`;
       const isReach = reach.has(idx(x, y));
       if (isReach) cls += ' reach';
       const text = isBase ? 'BASE'
@@ -117,7 +131,12 @@ export function RunField({ run, onMove }: { run: PublicRunView; onMove: (dir: Di
         >
           {text}
           {known && c.hazard > 0 && !isBase && <span className={`haz${c.gas ? ' gas' : ''}`}>{c.hazard}</span>}
-          {x === run.x && y === run.y && <span className="proxy" />}
+          {x === run.x && y === run.y && (
+            <>
+              <span className="proxy" />
+              {run.dir && <span className="proxy-front" style={{ transform: `rotate(${DIR_ANGLE[run.dir]}deg)` }} />}
+            </>
+          )}
         </div>
       );
     }

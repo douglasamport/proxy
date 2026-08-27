@@ -167,14 +167,54 @@
 .mining-root .cell.cavern{background:#243A3E;color:#6FA9AE;box-shadow:inset 0 0 0 1px #35585D}
 .mining-root .cell.tunnel{background:var(--tunnel);color:#5E7386}
 .mining-root .cell.cut{box-shadow:inset 0 0 0 2px var(--tunnel-edge)}
+/* Rock texture for anything known but not yet dug — ore included, so an
+   ore tile you've only seen from next door reads as covered rock, not as
+   already-cleared. Sits over whatever color the cell already has (grade
+   color, bare rock); caverns and seams never get this — caverns are
+   dug:true the moment they're discovered, and seams are permanent,
+   already-distinct obstacles that can never be dug at all.
+   Deliberately a mix of light AND dark marks, not just dark: a
+   multiply-only overlay compounds toward black on cells that are already
+   dark (bare rock, low-grade ore) until it's unreadable — light flecks stay
+   visible there, dark flecks stay visible against bright ore colors, so
+   this reads consistently regardless of what's underneath. */
+.mining-root .cell.undug::before{
+  content:"";position:absolute;inset:0;border-radius:2px;pointer-events:none;
+  background-image:
+    repeating-linear-gradient(114deg, rgba(0,0,0,.24) 0 2px, transparent 2px 6px, rgba(255,255,255,.16) 6px 7px, transparent 7px 12px),
+    radial-gradient(circle at 25% 30%, rgba(255,255,255,.22) 0 2px, transparent 3px),
+    radial-gradient(circle at 70% 20%, rgba(0,0,0,.32) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 45% 65%, rgba(255,255,255,.18) 0 1.8px, transparent 2.8px),
+    radial-gradient(circle at 80% 72%, rgba(0,0,0,.28) 0 2px, transparent 3px),
+    radial-gradient(circle at 15% 80%, rgba(255,255,255,.16) 0 1.6px, transparent 2.6px);
+}
 .mining-root .cell.base{background:var(--machine-dim);color:#DFF6FB;font-size:9px;letter-spacing:.06em}
 .mining-root .cell.reach{border-color:var(--machine);cursor:pointer}
 .mining-root .cell.reach:hover{filter:brightness(1.2)}
 .mining-root .cell .haz{
-  position:absolute;top:1px;right:2px;font-size:9px;color:var(--danger);font-weight:700;
-  text-shadow:0 0 3px #000;
+  position:absolute;top:1px;right:1px;font-size:11px;color:var(--danger);font-weight:700;
+  background:rgba(10,8,7,.72);border-radius:2px;padding:0 2px;line-height:1.3;
+  text-shadow:0 0 2px #000;
 }
-.mining-root .cell .haz.gas{color:#E86BE0;text-shadow:0 0 5px rgba(232,107,224,.7)}
+.mining-root .cell .haz.gas{color:#E86BE0;background:rgba(24,8,20,.72)}
+/* Hazard/gas background treatment — the corner number is precise but easy
+   to miss; this makes "something's wrong here" readable at a glance.
+   Independent ::after so it layers over .undug's ::before without conflict
+   (a cell can be both undug and hazardous at once). */
+.mining-root .cell.hazard::after{
+  content:"";position:absolute;inset:0;border-radius:2px;pointer-events:none;
+  background-image:repeating-linear-gradient(45deg, rgba(217,86,79,.24) 0 4px, transparent 4px 9px);
+  box-shadow:inset 0 0 6px rgba(217,86,79,.6);
+}
+/* Gas gets its own treatment, not the hazard stripe — a soft mist, no
+   lines. The zebra stripe was competing with the ore-grade color/number
+   underneath; mist alone reads as "gas" and stays legible. */
+.mining-root .cell.hazard.gas::after{
+  background-image:
+    radial-gradient(circle at 30% 35%, rgba(232,107,224,.4) 0 40%, transparent 65%),
+    radial-gradient(circle at 68% 62%, rgba(232,107,224,.34) 0 35%, transparent 60%);
+  box-shadow:inset 0 0 8px rgba(232,107,224,.7);
+}
 .mining-root .contact{
   position:absolute;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
   border:1px solid rgba(84,198,220,.55);
@@ -203,6 +243,19 @@
 }
 .mining-root .cell .proxy::after{
   content:"";position:absolute;inset:7px;background:var(--machine);border-radius:50%;
+}
+/* Heading indicator: twin sensor-eyes on the leading edge. Positioned for
+   "facing up" (North) by default; page.tsx rotates the whole element to the
+   real heading via inline transform, since movement is only ever N/S/E/W —
+   simpler than four sets of hardcoded positions. */
+.mining-root .cell .proxy-front{
+  position:absolute;inset:3px;border-radius:50%;pointer-events:none;
+}
+.mining-root .cell .proxy-front::before{
+  content:"";position:absolute;top:1px;left:50%;width:2.5px;height:2.5px;margin-left:-1.25px;
+  border-radius:50%;background:transparent;
+  box-shadow:-3.5px 0 0 0 #DFF6FB,3.5px 0 0 0 #DFF6FB;
+  z-index:1;
 }
 
 .mining-root .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
