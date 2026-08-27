@@ -1,46 +1,34 @@
 'use client';
 
-import { useMemo } from 'react';
-import { CFG, chassisFrom, fieldDims } from '@/lib/mining-engine';
-import type { Alloc, SurveyReport, SurveyTier } from '@/lib/mining-engine';
+import { CFG, fieldDims } from '@/lib/mining-engine';
+import type { Chassis, SurveyReport, SurveyTier } from '@/lib/mining-engine';
 
-export const PRESETS: [string, Alloc, string][] = [
-  ['Balanced',   {fuel:4,cargo:3,armour:2,drive:3,steer:2,sensor:2,analyser:0}, 'The reference rig. Nothing outstanding, nothing missing.'],
-  ['Hauler',     {fuel:3,cargo:6,armour:2,drive:2,steer:1,sensor:2,analyser:0}, 'Huge hold, few hauls. Best cost per unit on small claims, strands on big ones.'],
-  ['Surveyor',   {fuel:4,cargo:2,armour:2,drive:2,steer:1,sensor:4,analyser:1}, 'Sees furthest and reads it best. Small hold, so it works what it finds carefully.'],
-  ['Deep shaft', {fuel:6,cargo:3,armour:1,drive:2,steer:1,sensor:2,analyser:1}, 'Maximum tank, minimum plate. Goes furthest, wrecks most.'],
-  ['Sprinter',   {fuel:4,cargo:2,armour:1,drive:5,steer:2,sensor:2,analyser:0}, 'Cheap ground, thin everything else. Covers distance, not hazard.'],
-  ['Weaver',     {fuel:3,cargo:3,armour:2,drive:2,steer:4,sensor:2,analyser:0}, 'Turns for almost nothing. Picks its way through scattered pockets.'],
-  ['Deepcore',   {fuel:4,cargo:3,armour:4,drive:2,steer:1,sensor:2,analyser:0}, 'Heavy plate. Cuts through gas and hard ground others must route around.'],
-  ['Blind dig',  {fuel:5,cargo:4,armour:3,drive:2,steer:2,sensor:0,analyser:0}, 'No sensors at all. Everything in the hull, nothing in the eyes. Pure nerve.']
-];
+// Presets used to double as one-click Alloc pickers back when the chassis
+// was a per-run 10-slot allocation. Loadouts are now owned inventory
+// (see the dedicated build screen), so these aren't wired to anything —
+// kept for whenever preset *loadouts* (bundles of owned-item picks) get
+// rebuilt on top of the new system.
+// export const PRESETS: [string, Alloc, string][] = [
+//   ['Balanced',   {fuel:4,cargo:3,armour:2,drive:3,steer:2,sensor:2,analyser:0}, 'The reference rig. Nothing outstanding, nothing missing.'],
+//   ['Hauler',     {fuel:3,cargo:6,armour:2,drive:2,steer:1,sensor:2,analyser:0}, 'Huge hold, few hauls. Best cost per unit on small claims, strands on big ones.'],
+//   ['Surveyor',   {fuel:4,cargo:2,armour:2,drive:2,steer:1,sensor:4,analyser:1}, 'Sees furthest and reads it best. Small hold, so it works what it finds carefully.'],
+//   ['Deep shaft', {fuel:6,cargo:3,armour:1,drive:2,steer:1,sensor:2,analyser:1}, 'Maximum tank, minimum plate. Goes furthest, wrecks most.'],
+//   ['Sprinter',   {fuel:4,cargo:2,armour:1,drive:5,steer:2,sensor:2,analyser:0}, 'Cheap ground, thin everything else. Covers distance, not hazard.'],
+//   ['Weaver',     {fuel:3,cargo:3,armour:2,drive:2,steer:4,sensor:2,analyser:0}, 'Turns for almost nothing. Picks its way through scattered pockets.'],
+//   ['Deepcore',   {fuel:4,cargo:3,armour:4,drive:2,steer:1,sensor:2,analyser:0}, 'Heavy plate. Cuts through gas and hard ground others must route around.'],
+//   ['Blind dig',  {fuel:5,cargo:4,armour:3,drive:2,steer:2,sensor:0,analyser:0}, 'No sensors at all. Everything in the hull, nothing in the eyes. Pure nerve.']
+// ];
 
-const SYSTEMS: (keyof Alloc)[] = ['fuel', 'cargo', 'armour', 'drive', 'steer', 'sensor', 'analyser'];
 // 'none' isn't a purchasable tier — it's just the default before anything's bought.
 const SURVEY_TIERS: ('basic' | 'full')[] = ['basic', 'full'];
 
-const ROWS: [keyof Alloc, string, string][] = [
-  ['fuel',   'Fuel tank',    `+${CFG.FUEL_PER_UNIT} fuel`],
-  ['cargo',  'Cargo hold',   `+${CFG.HOLD_PER_UNIT} units carried`],
-  ['armour', 'Armour plate', `+${CFG.SINK_PER_PLATE} sink`],
-  ['drive',  'Drive',        `+${CFG.SPEED_PER_UNIT} speed — cheaper ground`],
-  ['steer',  'Steering',     `+${CFG.MOVE_PER_UNIT} movement — cheaper turns`],
-  ['sensor', 'Sensor array', `+${CFG.SENSOR_RANGE_PER} ping range, tighter fixes`],
-  ['analyser', 'Analyser',   `narrows the grade estimate`]
-];
-
-function sameAlloc(a: Alloc, b: Alloc) {
-  return SYSTEMS.every(k => (a[k] || 0) === (b[k] || 0));
-}
-
 interface FittingPanelProps {
-  alloc: Alloc;
+  chassis: Chassis;
   claim: number;
   survey: SurveyTier;
   report: SurveyReport | null;
   balance: string | null;
   runId: string | null;
-  onAllocChange: (alloc: Alloc) => void;
   onClaimChange: (claim: number) => void;
   onRequestSurvey: (tier: 'basic' | 'full') => void;
   onLaunch: () => void;
@@ -48,23 +36,15 @@ interface FittingPanelProps {
 
 // Order matches the decisions a player actually makes, in order: the field
 // is assigned (server-side, before this component ever mounts), then buy a
-// survey or skip it, then buy a claim size, then fit out equipment, then launch.
+// survey or skip it, then buy a claim size, then check the chassis (fitted
+// out ahead of time on the dedicated build screen), then launch.
 export function FittingPanel({
-  alloc, claim, survey, report, balance, runId,
-  onAllocChange, onClaimChange, onRequestSurvey, onLaunch
+  chassis: ch, claim, survey, report, balance, runId,
+  onClaimChange, onRequestSurvey, onLaunch
 }: FittingPanelProps) {
-  const ch = useMemo(() => chassisFrom(alloc), [alloc]);
-  const volUsed = SYSTEMS.reduce((n, k) => n + (alloc[k] || 0), 0);
-  const left = CFG.VOLUME_TOTAL - volUsed;
   const dims = fieldDims();
-  const activePreset = PRESETS.find(([, a]) => sameAlloc(alloc, a));
   const claimCost = CFG.CLAIM_COST[claim] ?? 0;
   const funds = balance ? Number(balance) : 0;
-
-  function step(key: keyof Alloc, d: number) {
-    if (d > 0 && volUsed >= CFG.VOLUME_TOTAL) return;
-    onAllocChange({ ...alloc, [key]: Math.max(0, (alloc[key] || 0) + d) });
-  }
 
   return (
     <>
@@ -113,32 +93,10 @@ export function FittingPanel({
       </div>
 
       <div className="sect build-section">
-        <div className="lbl">Build</div>
-        <div className="presets">
-          {PRESETS.map(([name, a, tip]) => (
-            <button
-              key={name}
-              className={`pbtn ${sameAlloc(alloc, a) ? 'on' : ''}`}
-              title={tip}
-              onClick={() => onAllocChange({ ...a })}
-            >
-              {name}
-            </button>
-          ))}
+        <div className="lbl">Chassis</div>
+        <div className="ptip">
+          Whatever&rsquo;s equipped on your <a href="/games/mining/build">build screen</a> right now. Fit changes there carry into your next launch.
         </div>
-        <div className="ptip">{activePreset ? activePreset[2] : 'Custom fitting.'}</div>
-
-        {ROWS.map(([k, name, sub]) => (
-          <div className="fit-row" key={k}>
-            <div className="fit-name">{name}<small>{sub}</small></div>
-            <div className="stepper">
-              <button onClick={() => step(k, -1)} disabled={(alloc[k] || 0) <= 0}>−</button>
-              <span>{alloc[k]}</span>
-              <button onClick={() => step(k, 1)} disabled={left <= 0}>+</button>
-            </div>
-          </div>
-        ))}
-        <div className="vol"><span>Unallocated</span><b>{left}</b></div>
 
         <div className="derived">
           <div><span>Hold per trip</span><b>{ch.hold}u</b></div>
@@ -153,6 +111,8 @@ export function FittingPanel({
           <div><span>Ping cost</span><b>{ch.pingFuel.toFixed(1)} fuel</b></div>
           <div><span>Grade estimate</span><b>±{(ch.analyser / 2).toFixed(1)} tiers</b></div>
         </div>
+
+        <a className="hbtn" href="/games/mining/build" style={{ display: 'inline-block', marginTop: 10, textDecoration: 'none', textAlign: 'center' }}>Edit loadout</a>
       </div>
 
       <button className="go" onClick={onLaunch} disabled={!runId}>Launch run</button>

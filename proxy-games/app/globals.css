@@ -70,6 +70,17 @@ a:hover { text-decoration: underline; }
   color: #8a97a3;
 }
 
+.user-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-link {
+  color: #8a97a3;
+}
+.user-link:hover { color: #e6e9ec; }
+
 .user-balance {
   font-variant-numeric: tabular-nums;
   color: #54c6dc;

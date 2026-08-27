@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import './mining.css';
-import { CFG } from '@/lib/mining-engine';
-import type { Alloc, DirKey, RunStatus, ScoreResult, SurveyReport, SurveyTier } from '@/lib/mining-engine';
+import { CFG, chassisFromEffects } from '@/lib/mining-engine';
+import type { Chassis, DirKey, RunStatus, ScoreResult, SurveyReport, SurveyTier } from '@/lib/mining-engine';
 import type { PublicRunView } from '@/lib/mining-run-store';
-import { FittingPanel, PRESETS } from './FittingPanel';
+import { FittingPanel } from './FittingPanel';
 import { InfoPanel } from './InfoPanel';
 import { RunControls, RunField, RunLedger, StatusPanel } from './RunScreen';
 import { ResultsModal } from './ResultsModal';
@@ -34,6 +34,10 @@ interface EndResult {
   ai: ScoreResult;
 }
 
+type CurrentRunPayload =
+  | { phase: 'fitting'; runId: string; survey: SurveyTier; report: SurveyReport | null; balance: string }
+  | { phase: 'active'; runId: string; view: PublicRunView; balance: string };
+
 async function postJSON<T>(url: string, body?: unknown): Promise<{ ok: true; data: T } | { ok: false; status: number }> {
   const res = await fetch(url, {
     method: 'POST',
@@ -49,7 +53,7 @@ export default function MiningPage() {
   const [runId, setRunId] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
   const [devSeedInput, setDevSeedInput] = useState('');
-  const [alloc, setAlloc] = useState<Alloc>({ ...PRESETS[0][1] });
+  const [chassis, setChassis] = useState<Chassis>(() => chassisFromEffects({}));
   const [claim, setClaim] = useState(CFG.ENERGY);
   const [survey, setSurvey] = useState<SurveyTier>('none');
   const [surveyReport, setSurveyReport] = useState<SurveyReport | null>(null);
@@ -64,6 +68,10 @@ export default function MiningPage() {
   const busyRef = useRef(false);
   const endingRef = useRef(false);
 
+  // Forces a BRAND NEW field, discarding any unlaunched fit — the explicit
+  // "give me a different field" action (dev reseed, Refit, Play again).
+  // Plain page load/navigation uses resumeCurrentRun() below instead, which
+  // doesn't discard anything.
   const assignField = useCallback(async (seedOverride?: number) => {
     const r = await postJSON<{ runId: string; balance: string }>('/api/runs/field', {
       game: 'mining',
@@ -85,25 +93,69 @@ export default function MiningPage() {
     endingRef.current = false;
   }, []);
 
+  // Resumes whatever's already in progress (an unlaunched fit — survey and
+  // all — or a run mid-flight) instead of rolling a new field. This is what
+  // mount calls, so navigating to the build/store screens and back doesn't
+  // wipe a bought survey or reroll the seed (see app/api/runs/current/route.ts).
+  const resumeCurrentRun = useCallback(async () => {
+    const r = await postJSON<CurrentRunPayload>('/api/runs/current', { game: 'mining' });
+    if (!r.ok) {
+      if (r.status === 401) setAuthRequired(true);
+      return;
+    }
+    setAuthRequired(false);
+    setRunId(r.data.runId);
+    setBalance(r.data.balance);
+    setFitError('');
+    setResults(null);
+    endingRef.current = false;
+    if (r.data.phase === 'active') {
+      setPhase('run');
+      setView(r.data.view);
+    } else {
+      setPhase('fit');
+      setView(null);
+      setSurvey(r.data.survey);
+      setSurveyReport(r.data.report);
+    }
+  }, []);
+
+  // For display purposes only — the server recomputes this from scratch at
+  // launch (see computeChassis() in lib/mining-inventory.ts) and never
+  // trusts this figure. Loadout changes happen on the dedicated build
+  // screen; this just reflects them here. Chassis is computed server-side
+  // (baseline + equipped effects) rather than re-derived from raw
+  // catalog/inventory rows here, so this can't drift from the one place
+  // that math actually lives.
+  const fetchInventory = useCallback(async () => {
+    const res = await fetch('/api/inventory?game=mining');
+    if (!res.ok) return;
+    const data = await res.json();
+    setChassis(data.chassis);
+    setBalance(data.balance);
+  }, []);
+
   // Guarded against React Strict Mode's dev-only double-invoke of mount
-  // effects: assignField() deletes-then-inserts server-side, so firing it
-  // twice on mount is a real race (two concurrent requests, whichever
-  // response resolves last can leave runId pointing at a row the other
-  // request's cleanup already deleted). This ref makes the second
-  // invocation a no-op regardless of timing.
+  // effects: resumeCurrentRun() can itself create a row server-side (when
+  // there's nothing to resume), so firing it twice on mount is a real race
+  // (two concurrent requests, whichever response resolves last can leave
+  // runId pointing at a row the other request's cleanup already deleted).
+  // This ref makes the second invocation a no-op regardless of timing.
   const didAssignRef = useRef(false);
   useEffect(() => {
     if (didAssignRef.current) return;
     didAssignRef.current = true;
-    assignField();
-  }, [assignField]);
+    resumeCurrentRun();
+    fetchInventory();
+  }, [resumeCurrentRun, fetchInventory]);
 
   async function handleLaunch() {
     if (!runId) return;
-    // survey isn't sent — the server applies whatever tier was actually
-    // paid for (see app/api/runs/[id]/launch/route.ts), not anything from
-    // here, since a client claim about it can't be trusted for real money.
-    const r = await postJSON<PublicRunView>(`/api/runs/${runId}/launch`, { alloc, claim });
+    // survey and chassis aren't sent — the server applies whatever tier was
+    // actually paid for and whatever's actually equipped (see
+    // app/api/runs/[id]/launch/route.ts), not anything from here, since a
+    // client claim about either can't be trusted for real money.
+    const r = await postJSON<PublicRunView>(`/api/runs/${runId}/launch`, { claim });
     if (!r.ok) { setLastMsg('Could not launch — try again.'); return; }
     setView(r.data);
     setPhase('run');
@@ -230,13 +282,12 @@ export default function MiningPage() {
           <div className="fit-controls">
             {fitError && <div className="ptip" style={{ color: 'var(--danger)' }}>{fitError}</div>}
             <FittingPanel
-              alloc={alloc}
+              chassis={chassis}
               claim={claim}
               survey={survey}
               report={surveyReport}
               balance={balance}
               runId={runId}
-              onAllocChange={setAlloc}
               onClaimChange={setClaim}
               onRequestSurvey={requestSurveyPurchase}
               onLaunch={handleLaunch}

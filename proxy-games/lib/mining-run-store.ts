@@ -12,7 +12,7 @@ export interface RunRow {
   game: string;
   seed: number;
   phase: 'fitting' | 'active';
-  alloc: unknown;
+  loadout: { item_key: string; quantity: number }[] | null;
   claim: number | null;
   survey: SurveyTier;
   state: unknown;
@@ -33,7 +33,7 @@ function deserializeState(raw: unknown): RunState {
 
 export async function loadFittingRun(id: string, playerId: string): Promise<RunRow | null> {
   const [row] = await sql`
-    select id, player_id, game, seed, phase, alloc, claim, survey, state
+    select id, player_id, game, seed, phase, loadout, claim, survey, state
     from in_progress_runs
     where id = ${id} and player_id = ${playerId} and phase = 'fitting'
   `;
@@ -42,7 +42,7 @@ export async function loadFittingRun(id: string, playerId: string): Promise<RunR
 
 export async function loadActiveRun(id: string, playerId: string): Promise<{ row: RunRow; state: RunState } | null> {
   const [row] = await sql`
-    select id, player_id, game, seed, phase, alloc, claim, survey, state
+    select id, player_id, game, seed, phase, loadout, claim, survey, state
     from in_progress_runs
     where id = ${id} and player_id = ${playerId} and phase = 'active'
   `;
@@ -154,7 +154,7 @@ export async function settleRun(row: RunRow, state: RunState): Promise<{ you: Sc
       insert into runs (id, player_id, game, seed, config, status, units, grade, net, move_log)
       values (
         ${runId}, ${row.player_id}, ${row.game}, ${state.seed},
-        ${JSON.stringify({ alloc: state.chassis.alloc, claim: state.energyStart, survey: state.survey })},
+        ${JSON.stringify({ loadout: row.loadout, claim: state.energyStart, survey: state.survey })},
         ${state.status}, ${you.units}, ${you.grade}, ${you.net},
         ${JSON.stringify(state.log)}
       )
@@ -181,7 +181,7 @@ export async function settleRun(row: RunRow, state: RunState): Promise<{ you: Sc
 // that way; this only catches outcomes that already happened.
 export async function settleAbandonedRuns(playerId: string, game: string): Promise<void> {
   const rows = await sql`
-    select id, player_id, game, seed, phase, alloc, claim, survey, state
+    select id, player_id, game, seed, phase, loadout, claim, survey, state
     from in_progress_runs
     where player_id = ${playerId} and game = ${game} and phase = 'active'
       and state->>'status' <> 'active'
@@ -189,6 +189,26 @@ export async function settleAbandonedRuns(playerId: string, game: string): Promi
   for (const row of rows as RunRow[]) {
     await settleRun(row, deserializeState(row.state));
   }
+}
+
+// Settles any abandoned run, clears out any existing fitting-phase row (an
+// unlaunched fit — nothing was ever spent on it), and starts a fresh one
+// with the given seed. Shared by the "give me a brand new field" actions
+// (POST /api/runs/field, dev reseed, refit, play-again) — NOT used for a
+// plain resume, which should leave an existing fitting/active run alone.
+// See app/api/runs/current/route.ts for the resume-or-create path.
+export async function assignNewField(playerId: string, game: string, seed: number): Promise<{ runId: string; balance: string }> {
+  await settleAbandonedRuns(playerId, game);
+  await sql`delete from in_progress_runs where player_id = ${playerId} and game = ${game} and phase = 'fitting'`;
+
+  const [row] = await sql`
+    insert into in_progress_runs (player_id, game, seed, phase)
+    values (${playerId}, ${game}, ${seed}, 'fitting')
+    returning id
+  `;
+
+  const [{ balance }] = await sql`select balance from players where id = ${playerId}`;
+  return { runId: row.id, balance };
 }
 
 export type PurchaseResult =

@@ -14,7 +14,7 @@ create table in_progress_runs (
   game          text not null,
   seed          bigint not null,
   phase         text not null default 'fitting',   -- 'fitting' | 'active'
-  alloc         jsonb,                              -- set at launch, after server-side validation
+  loadout       jsonb,                              -- set at launch: [{item_key, quantity}], from player_inventory
   claim         int,                                -- set at launch
   survey        text not null default 'none',       -- set at launch
   state         jsonb,                               -- full RunState, set at launch, updated per move/extract/ping

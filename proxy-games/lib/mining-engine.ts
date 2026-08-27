@@ -7,6 +7,9 @@ export type SurveyTier = "none" | "basic" | "full";
 export type DirKey = "N" | "S" | "E" | "W";
 export type RunStatus = "active" | "banked" | "stranded" | "wrecked";
 
+// Kept for the commented-out presets in FittingPanel.tsx — not used by the
+// live chassis computation anymore, that's driven by equipped inventory
+// items now (see chassisFromEffects below and lib/mining-inventory.ts).
 export interface Alloc {
   fuel: number;
   cargo: number;
@@ -18,7 +21,6 @@ export interface Alloc {
 }
 
 export interface Chassis {
-  alloc: Alloc;
   fuelCap: number;
   hold: number;
   sinkCap: number;
@@ -29,6 +31,13 @@ export interface Chassis {
   pingFuel: number;
   analyser: number;
 }
+
+// The stats an equipped item can affect. One item can touch several at
+// once — a sensor array affects range, blur, and ping cost together —
+// which is why item_catalog.effects is a map, not a single number.
+export type StatKey =
+  | "fuelCap" | "hold" | "sinkCap" | "speed" | "movement"
+  | "sensorRange" | "sensorBlur" | "pingFuel" | "analyser";
 
 export interface Point {
   x: number;
@@ -182,14 +191,20 @@ export const CFG = {
   BLOCK_H: 10, // the site exists independently of what you claim
   ORE_HEADROOM: 1.6, // target ore in the ground, as a multiple of the claim
 
-  VOLUME_TOTAL: 16,
+  SLOT_TOTAL: 10, // total equipped items across every category, combined
   // per allocated volume unit
   FUEL_PER_UNIT: 24,
   HOLD_PER_UNIT: 5,
   SINK_PER_PLATE: 12,
   SPEED_PER_UNIT: 0.2, // drive
   MOVE_PER_UNIT: 0.22, // steering
-  SENSOR_RANGE_BASE: 2.5, // ping radius with zero sensor volume
+  // SENSOR_RANGE_BASE is 0, not left at its old positive value: range is a
+  // "more is better" stat, so a free baseline with zero equipped sensors
+  // would mean pings work with no sensor gear installed at all. The other
+  // three sensor/analyser constants below stay as they were — they're
+  // "lower is better" stats, so their BASE value already IS the
+  // zero-equipped worst case (see chassisFromEffects), not a free gift.
+  SENSOR_RANGE_BASE: 0,
   SENSOR_RANGE_PER: 1.9,
   SENSOR_BLUR_BASE: 2.4, // position uncertainty in cells, lower is better
   SENSOR_BLUR_PER: -0.38,
@@ -199,12 +214,17 @@ export const CFG = {
   ANALYSER_BASE: 3, // grade-estimate width, in tiers
   ANALYSER_PER: -0.8,
 
-  // hull baseline with zero allocation
-  BASE_FUEL: 12,
-  BASE_HOLD: 2,
-  BASE_SINK: 10,
-  BASE_SPEED: 0.7, // cells per fuel
-  BASE_MOVE: 0.7, // turn-cost divisor
+  // No hull baseline anymore — fuel/cargo/armour/drive/steer are a pure sum
+  // of equipped item effects, zero at zero equipped. A proxy with nothing
+  // installed genuinely cannot move (moveCost divides by speed=0) or carry
+  // anything; that's deliberate, see the starter-inventory-grant note in
+  // the roadmap. These constants are kept at 0 rather than deleted so nothing
+  // downstream needs an undefined check.
+  BASE_FUEL: 0,
+  BASE_HOLD: 0,
+  BASE_SINK: 0,
+  BASE_SPEED: 0,
+  BASE_MOVE: 0,
 
   TURN_BASE: 1.2, // fuel to change direction, divided by movement
   EXTRACT_FUEL: 1.5, // flat fuel per node extracted
@@ -291,27 +311,23 @@ export function mulberry32(a: number): () => number {
   };
 }
 
-export function chassisFrom(alloc: Alloc): Chassis {
+// Chassis stats are now a pure sum of equipped-item effects (see
+// item_catalog.effects, aggregated by lib/mining-inventory.ts) — not
+// derived from a freely-chosen allocation. Callers with no items equipped
+// get an all-zero effects map, which correctly yields a non-functional
+// chassis (0 fuel, 0 hold, can't move) rather than a free baseline.
+export function chassisFromEffects(effects: Partial<Record<StatKey, number>>): Chassis {
+  const e = (k: StatKey) => effects[k] ?? 0;
   return {
-    alloc,
-    fuelCap: CFG.BASE_FUEL + alloc.fuel * CFG.FUEL_PER_UNIT,
-    hold: CFG.BASE_HOLD + alloc.cargo * CFG.HOLD_PER_UNIT,
-    sinkCap: CFG.BASE_SINK + alloc.armour * CFG.SINK_PER_PLATE,
-    speed: CFG.BASE_SPEED + alloc.drive * CFG.SPEED_PER_UNIT,
-    movement: CFG.BASE_MOVE + alloc.steer * CFG.MOVE_PER_UNIT,
-    sensorRange: CFG.SENSOR_RANGE_BASE + alloc.sensor * CFG.SENSOR_RANGE_PER,
-    sensorBlur: Math.max(
-      0.35,
-      CFG.SENSOR_BLUR_BASE + alloc.sensor * CFG.SENSOR_BLUR_PER,
-    ),
-    pingFuel: Math.max(
-      1.2,
-      CFG.PING_FUEL_BASE + alloc.sensor * CFG.PING_FUEL_PER,
-    ),
-    analyser: Math.max(
-      0.6,
-      CFG.ANALYSER_BASE + alloc.analyser * CFG.ANALYSER_PER,
-    ),
+    fuelCap: CFG.BASE_FUEL + e("fuelCap"),
+    hold: CFG.BASE_HOLD + e("hold"),
+    sinkCap: CFG.BASE_SINK + e("sinkCap"),
+    speed: CFG.BASE_SPEED + e("speed"),
+    movement: CFG.BASE_MOVE + e("movement"),
+    sensorRange: CFG.SENSOR_RANGE_BASE + e("sensorRange"),
+    sensorBlur: Math.max(0.35, CFG.SENSOR_BLUR_BASE + e("sensorBlur")),
+    pingFuel: Math.max(1.2, CFG.PING_FUEL_BASE + e("pingFuel")),
+    analyser: Math.max(0.6, CFG.ANALYSER_BASE + e("analyser")),
   };
 }
 

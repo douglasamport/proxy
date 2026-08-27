@@ -15,8 +15,6 @@ function formatBalance(balance: string | undefined) {
 export default async function Header() {
   const player = await currentPlayer();
 
-  console.log(player);
-
   return (
     <header className="site-header">
       <div className="nav-bar">
@@ -45,7 +43,12 @@ export default async function Header() {
         <span className="user-name">
           {player ? (player.display_name ?? player.email) : "Guest"}
         </span>
-        <span className="user-balance">${formatBalance(player?.balance)}</span>
+        <div className="user-bar-right">
+          <Link href="/inventory" className="user-link">
+            Inventory
+          </Link>
+          <span className="user-balance">${formatBalance(player?.balance)}</span>
+        </div>
       </div>
     </header>
   );

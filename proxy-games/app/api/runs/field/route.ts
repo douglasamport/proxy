@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/db/client';
 import { currentPlayer } from '@/lib/auth';
-import { settleAbandonedRuns } from '@/lib/mining-run-store';
+import { assignNewField } from '@/lib/mining-run-store';
 
-// POST { game, seed? } -> { runId }
+// POST { game, seed? } -> { runId, balance }
 //
-// Assigns a field for the player to fit out and (eventually) play. The seed
-// is generated here, server-side, and never returned — sending it to the
-// client would be equivalent to sending the whole field, since field
+// Always starts a BRAND NEW field, discarding any unlaunched fitting run —
+// this is the explicit "I want a different field" action (dev reseed,
+// Refit, Play again), not what runs on a plain page load/navigation. See
+// POST /api/runs/current for the resume-if-possible path that mount uses.
+//
+// The seed is generated here, server-side, and never returned — sending it
+// to the client would be equivalent to sending the whole field, since field
 // generation is a pure deterministic function of the seed. `seed` in the
 // request body is only ever honored outside production (see below), for
 // the same reason the dev-only seed input exists in the UI: hiding a
@@ -29,26 +32,6 @@ export async function POST(req: NextRequest) {
     ? requestedSeed
     : Math.floor(Math.random() * 9000) + 1000;
 
-  // Settle any run that already ended (fuel dry, wrecked, or a rejected
-  // manual end) but was never reported — otherwise a player could just
-  // never let the client call /end and dodge a bad outcome indefinitely.
-  // Runs still genuinely in progress are untouched; abandoning those has
-  // always been free and stays that way.
-  await settleAbandonedRuns(player.id, game);
-
-  // A player can only be mid-fitting on one field per game at a time —
-  // clear out any abandoned ones (nothing was ever spent on them).
-  await sql`delete from in_progress_runs where player_id = ${player.id} and game = ${game} and phase = 'fitting'`;
-
-  const [row] = await sql`
-    insert into in_progress_runs (player_id, game, seed, phase)
-    values (${player.id}, ${game}, ${seed}, 'fitting')
-    returning id
-  `;
-
-  // Re-read balance rather than reuse player.balance from above —
-  // settleAbandonedRuns() may have just changed it.
-  const [{ balance }] = await sql`select balance from players where id = ${player.id}`;
-
-  return NextResponse.json({ runId: row.id, balance });
+  const { runId, balance } = await assignNewField(player.id, game, seed);
+  return NextResponse.json({ runId, balance });
 }
