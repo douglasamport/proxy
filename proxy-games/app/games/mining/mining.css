@@ -148,13 +148,18 @@
 }
 .mining-root .go:hover{filter:brightness(1.08)}
 
-/* ---- chassis build screen: master/detail, left = system, right = owned items ---- */
+/* ---- chassis build screen: nav | owned items | live stats ---- */
 .mining-root main.build-layout{
-  display:grid;grid-template-columns:200px 1fr;gap:28px;
+  display:grid;grid-template-columns:200px minmax(0,1fr) 260px;gap:24px;
   padding:24px 28px 48px;align-items:start;
+}
+@media (max-width:1050px){
+  .mining-root main.build-layout{grid-template-columns:200px minmax(0,1fr)}
+  .mining-root .build-stats{grid-column:1 / -1}
 }
 @media (max-width:700px){
   .mining-root main.build-layout{grid-template-columns:1fr}
+  .mining-root .build-stats{grid-column:auto}
 }
 .mining-root .build-nav{display:flex;flex-direction:column;gap:4px}
 .mining-root .navbtn{
@@ -165,15 +170,31 @@
 .mining-root .navbtn:hover{color:var(--text);border-color:var(--machine-dim)}
 .mining-root .navbtn.on{background:var(--machine-dim);border-color:var(--machine);color:#DFF6FB;font-weight:700}
 .mining-root .navbtn b{font-weight:700;color:inherit}
-.mining-root .build-detail{
+.mining-root .navbtn.full{border-style:dashed}
+.mining-root .navbtn span{display:inline-flex;align-items:center;gap:7px}
+.mining-root .navbtn svg{flex-shrink:0;opacity:.85}
+.mining-root .build-nav-divider{height:1px;background:var(--line);margin:6px 2px}
+.mining-root .build-detail, .mining-root .build-stats{
   min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px 22px;
 }
+.mining-root .build-stats .derived{margin-top:0}
 
 /* ---- store screen ---- */
 .mining-root main.store-layout{padding:24px 28px 48px}
 .mining-root .store-grid{
   display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;
 }
+
+/* ---- category filter bar: store + inventory ---- */
+.mining-root .filter-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
+.mining-root .filter-btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 12px;background:var(--panel-2);border:1px solid var(--line);border-radius:20px;
+  color:var(--dim);font-size:11px;letter-spacing:.03em;
+}
+.mining-root .filter-btn:hover{color:var(--text);border-color:var(--machine-dim)}
+.mining-root .filter-btn.on{background:var(--machine-dim);border-color:var(--machine);color:#DFF6FB;font-weight:700}
+.mining-root .filter-btn svg{flex-shrink:0;opacity:.85}
 
 /* ---- shared item card: build screen (equip) and store (buy) ---- */
 .mining-root .item-card{
