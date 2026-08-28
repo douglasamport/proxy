@@ -54,6 +54,7 @@ export default function MiningPage() {
   const [authRequired, setAuthRequired] = useState(false);
   const [devSeedInput, setDevSeedInput] = useState('');
   const [chassis, setChassis] = useState<Chassis>(() => chassisFromEffects({}));
+  const [equipmentAvailable, setEquipmentAvailable] = useState<string[]>([]);
   const [claim, setClaim] = useState(CFG.ENERGY);
   const [survey, setSurvey] = useState<SurveyTier>('none');
   const [surveyReport, setSurveyReport] = useState<SurveyReport | null>(null);
@@ -133,6 +134,7 @@ export default function MiningPage() {
     const data = await res.json();
     setChassis(data.chassis);
     setBalance(data.balance);
+    setEquipmentAvailable(data.equipmentAvailable);
   }, []);
 
   // Guarded against React Strict Mode's dev-only double-invoke of mount
@@ -211,6 +213,20 @@ export default function MiningPage() {
 
   const doExtract = useCallback(() => { runAction('extract'); }, [runAction]);
   const doPing = useCallback(() => { runAction('ping'); }, [runAction]);
+
+  // Both consume the equipped item on a successful (err-free) use — see
+  // the /siphon and /scan-line routes — so the client re-checks what's
+  // still available afterward rather than assuming it's still equipped.
+  const doSiphon = useCallback(async () => {
+    await runAction('siphon');
+    fetchInventory();
+  }, [runAction, fetchInventory]);
+
+  const doScanLine = useCallback(async () => {
+    if (!view?.dir) return;
+    await runAction('scan-line', { direction: view.dir });
+    fetchInventory();
+  }, [view, runAction, fetchInventory]);
 
   const doEnd = useCallback(async () => {
     if (!runId || endingRef.current) return;
@@ -308,7 +324,16 @@ export default function MiningPage() {
               {view && <RunField run={view} onMove={doMove} />}
             </div>
             {view && (
-              <RunControls run={view} lastMsg={lastMsg} onExtract={doExtract} onPing={doPing} onEnd={doEnd} />
+              <RunControls
+                run={view}
+                lastMsg={lastMsg}
+                equipmentAvailable={equipmentAvailable}
+                onExtract={doExtract}
+                onPing={doPing}
+                onEnd={doEnd}
+                onSiphon={doSiphon}
+                onScanLine={doScanLine}
+              />
             )}
           </div>
 

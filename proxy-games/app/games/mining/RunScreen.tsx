@@ -178,12 +178,17 @@ export function RunField({ run, onMove }: { run: PublicRunView; onMove: (dir: Di
 interface RunControlsProps {
   run: PublicRunView;
   lastMsg: string;
+  equipmentAvailable: string[];
   onExtract: () => void;
   onPing: () => void;
   onEnd: () => void;
+  onSiphon: () => void;
+  onScanLine: () => void;
 }
 
-export function RunControls({ run, lastMsg, onExtract, onPing, onEnd }: RunControlsProps) {
+export function RunControls({
+  run, lastMsg, equipmentAvailable, onExtract, onPing, onEnd, onSiphon, onScanLine,
+}: RunControlsProps) {
   const here = run.status === 'active' ? run.cells[idx(run.x, run.y)] : null;
   // A fully-extracted cell always has tier reset to 0 in the same step it's
   // marked spent (see applyExtract in the engine), so tier > 0 alone is
@@ -192,6 +197,14 @@ export function RunControls({ run, lastMsg, onExtract, onPing, onEnd }: RunContr
   const based = run.status === 'active' && atBase(run);
   const cd = Math.max(0, run.pingReady - run.step);
   const canPing = run.status === 'active' && cd === 0 && run.fuel >= run.chassis.pingFuel;
+
+  // Single-use field tools — see lib/mining-engine.ts's applySiphon /
+  // applyLineScan and the equipment slot system in lib/mining-inventory.ts.
+  // Only shown at all once one's actually equipped; consumed on use.
+  const hasSiphon = equipmentAvailable.includes('ore_siphon');
+  const hasScanner = equipmentAvailable.includes('line_scanner');
+  const canSiphon = run.status === 'active' && run.carrying.length > 0;
+  const canScanLine = run.status === 'active' && run.dir !== null;
 
   return (
     <>
@@ -202,6 +215,21 @@ export function RunControls({ run, lastMsg, onExtract, onPing, onEnd }: RunContr
         <button className="cbtn ping" disabled={!canPing} onClick={onPing}>
           {cd ? `Sensors ${cd}` : `Ping (${run.chassis.pingFuel.toFixed(1)} fuel)`}
         </button>
+        {hasSiphon && (
+          <button className="cbtn" disabled={!canSiphon} onClick={onSiphon} title="Burns carried ore for fuel. Consumed on use.">
+            Siphon ore
+          </button>
+        )}
+        {hasScanner && (
+          <button
+            className="cbtn"
+            disabled={!canScanLine}
+            onClick={onScanLine}
+            title={`Scans the full ${run.dir ?? ''} line from here, stopped by the first hard seam. Consumed on use.`}
+          >
+            Scan {run.dir ?? ''} line
+          </button>
+        )}
         <button className="cbtn warn" disabled={!based} onClick={onEnd}>End run</button>
       </div>
       <div className="hint">

@@ -84,6 +84,12 @@ export async function purchaseItem(
 
 export type SetEquippedResult = "ok" | "not_owned" | "over_cap";
 
+// Equipment items (ore siphon, line scanner) draw against a completely
+// separate slot pool from chassis gear — see getEquipmentSlotTotal() below
+// — so they don't compete with fuel tanks and armor plate for the same 10
+// (+expansions) slots.
+export const EQUIPMENT_CATEGORY = "equipment";
+
 // Equipping/unequipping never touches the balance — the item's already
 // paid for, this only decides what's currently installed. Not wrapped in
 // the same race-proof machinery as purchaseItem: this is a player editing
@@ -97,17 +103,26 @@ export async function setEquipped(
   quantity: number,
 ): Promise<SetEquippedResult> {
   const [row] = await sql`
-    select owned_quantity from player_inventory where player_id = ${playerId} and item_key = ${itemKey}
+    select pi.owned_quantity, ic.category
+    from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    where pi.player_id = ${playerId} and pi.item_key = ${itemKey}
   `;
   if (!row || quantity < 0 || quantity > row.owned_quantity) return "not_owned";
 
+  const isEquipment = row.category === EQUIPMENT_CATEGORY;
+  const cap = isEquipment ? await getEquipmentSlotTotal(playerId) : await getSlotTotal(playerId);
+
+  // Scoped to the same pool the item being changed belongs to — an
+  // equipment item's count never competes with chassis gear, and vice versa.
   const [{ total }] = await sql`
-    select coalesce(sum(equipped_quantity), 0)::int as total
-    from player_inventory
-    where player_id = ${playerId} and item_key != ${itemKey}
+    select coalesce(sum(pi.equipped_quantity), 0)::int as total
+    from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    where pi.player_id = ${playerId} and pi.item_key != ${itemKey}
+      and (ic.category = ${EQUIPMENT_CATEGORY}) = ${isEquipment}
   `;
-  const slotTotal = await getSlotTotal(playerId);
-  if (total + quantity > slotTotal) return "over_cap";
+  if (total + quantity > cap) return "over_cap";
 
   await sql`
     update player_inventory set equipped_quantity = ${quantity}, updated_at = now()
@@ -166,6 +181,102 @@ export async function purchaseChassisExpansion(playerId: string, game: string): 
   ]);
 
   return { kind: "ok", balance: deducted.balance };
+}
+
+// A single, very expensive slot for single-use field tools (ore siphon,
+// line scanner) — not a repeatable doubling purchase like chassis
+// expansion. One slot, period; see purchaseEquipmentSlotUnlock().
+export const EQUIPMENT_SLOT_KEY = "equipment_slot_unlock";
+
+export async function getEquipmentSlotTotal(playerId: string): Promise<number> {
+  const [row] = await sql`
+    select owned_quantity from player_inventory
+    where player_id = ${playerId} and item_key = ${EQUIPMENT_SLOT_KEY}
+  `;
+  return row?.owned_quantity ?? 0; // 0 until bought, capped at 1 below
+}
+
+export type PurchaseEquipmentSlotResult =
+  | { kind: "ok"; balance: string }
+  | { kind: "insufficient_funds" }
+  | { kind: "not_found" }
+  | { kind: "already_owned" };
+
+export async function purchaseEquipmentSlotUnlock(
+  playerId: string,
+  game: string,
+): Promise<PurchaseEquipmentSlotResult> {
+  const [item] =
+    await sql`select cost from item_catalog where item_key = ${EQUIPMENT_SLOT_KEY} and game = ${game} and active = true`;
+  if (!item) return { kind: "not_found" };
+  const cost = Number(item.cost);
+
+  const [deducted] = await sql`
+    update players set balance = balance - ${cost}
+    where id = ${playerId} and balance >= ${cost}
+    returning balance
+  `;
+  if (!deducted) return { kind: "insufficient_funds" };
+
+  // "on conflict do nothing" makes the insert a race-proof one-time gate —
+  // a row for this key can only ever mean "already owns the slot", so if
+  // it already existed this returns nothing and the purchase is refunded,
+  // the same way purchaseSurvey() refunds an orphaned conditional write.
+  const results = await sql.transaction([
+    sql`
+      insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
+      values (${playerId}, ${EQUIPMENT_SLOT_KEY}, 1, 0)
+      on conflict (player_id, item_key) do nothing
+      returning item_key
+    `,
+    sql`
+      insert into balance_transactions (player_id, game, reason, delta)
+      values (${playerId}, ${game}, 'equipment_slot_unlock', ${-cost})
+    `,
+  ]);
+
+  const inserted = results[0] as { item_key: string }[];
+  if (!inserted.length) {
+    await sql`update players set balance = balance + ${cost} where id = ${playerId}`;
+    return { kind: "already_owned" };
+  }
+
+  return { kind: "ok", balance: deducted.balance };
+}
+
+// Whether the player currently has a usable one of this equipped — checked
+// live against player_inventory at the moment a run action tries to use
+// it, not snapshotted at launch like the rest of the loadout, since the
+// whole point is that it can run out mid-run.
+export async function hasEquippedConsumable(playerId: string, itemKey: string): Promise<boolean> {
+  const [row] = await sql`
+    select equipped_quantity from player_inventory
+    where player_id = ${playerId} and item_key = ${itemKey}
+  `;
+  return (row?.equipped_quantity ?? 0) > 0;
+}
+
+// Called only after the run-state mutation it enabled has already
+// succeeded (err-free) — a rejected/no-op use shouldn't cost the item.
+// Owned and equipped drop together: nothing is left "equipped" once the
+// only copy is gone.
+export async function consumeEquippedItem(playerId: string, itemKey: string): Promise<void> {
+  await sql`
+    update player_inventory
+    set owned_quantity = owned_quantity - 1, equipped_quantity = equipped_quantity - 1, updated_at = now()
+    where player_id = ${playerId} and item_key = ${itemKey} and equipped_quantity > 0
+  `;
+}
+
+// Item keys currently equipped in the equipment slot(s) — what the client
+// uses to decide which "use X" buttons to show during a run.
+export async function loadEquipmentAvailable(playerId: string): Promise<string[]> {
+  const rows = await sql`
+    select pi.item_key from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    where pi.player_id = ${playerId} and ic.category = ${EQUIPMENT_CATEGORY} and pi.equipped_quantity > 0
+  `;
+  return rows.map((r) => r.item_key as string);
 }
 
 // Every chassis has this much for free, before anything's equipped — one

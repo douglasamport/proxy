@@ -10,6 +10,7 @@ import '../mining.css';
 // in the DB client, which has no business in a client bundle. It's just a
 // string key, duplicated here the same way 'mining' (the game slug) is.
 const EXPANSION_KEY = 'chassis_expansion';
+const EQUIPMENT_SLOT_KEY = 'equipment_slot_unlock';
 const ALL = '__all__';
 
 // No real art yet for most items — a placeholder keeps the layout spot
@@ -94,6 +95,23 @@ export default function StorePage() {
     await load();
   }
 
+  // One-time only, unlike the expansion above — see /api/store/equipment-slot.
+  async function buyEquipmentSlot() {
+    setBusyKey(EQUIPMENT_SLOT_KEY);
+    setError('');
+    const res = await fetch('/api/store/equipment-slot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ game: 'mining' }),
+    });
+    setBusyKey(null);
+    if (!res.ok) {
+      setError(res.status === 402 ? 'Not enough balance for that.' : 'Could not complete purchase — try again.');
+      return;
+    }
+    await load();
+  }
+
   if (authRequired) {
     return (
       <div className="mining-root">
@@ -139,6 +157,8 @@ export default function StorePage() {
           {shown.map(item => {
             const owned = ownedByKey.get(item.item_key) ?? 0;
             const isExpansion = item.item_key === EXPANSION_KEY;
+            const isEquipmentSlot = item.item_key === EQUIPMENT_SLOT_KEY;
+            const alreadyOwned = isEquipmentSlot && owned >= 1;
             const cost = isExpansion ? Number(item.cost) * 2 ** owned : Number(item.cost);
             const busy = busyKey === item.item_key;
             return (
@@ -149,18 +169,18 @@ export default function StorePage() {
                   <div>
                     <div className="item-label">{item.label}</div>
                     {item.description && <div className="item-desc">{item.description}</div>}
-                    {!isExpansion && <div className="item-effects">{effectsText(item.effects)}</div>}
+                    {Object.keys(item.effects).length > 0 && <div className="item-effects">{effectsText(item.effects)}</div>}
                   </div>
                   <button
                     className="hbtn buybtn"
-                    onClick={() => (isExpansion ? buyExpansion() : buy(item.item_key))}
-                    disabled={busy || cost > funds}
+                    onClick={() => (isExpansion ? buyExpansion() : isEquipmentSlot ? buyEquipmentSlot() : buy(item.item_key))}
+                    disabled={busy || alreadyOwned || cost > funds}
                   >
-                    Buy · {cost}
+                    {alreadyOwned ? 'Owned' : `Buy · ${cost}`}
                   </button>
                 </div>
                 <div className="item-owned">
-                  {isExpansion ? `slots added ${owned}` : `owned ${owned}`}
+                  {isExpansion ? `slots added ${owned}` : isEquipmentSlot ? (alreadyOwned ? 'unlocked' : 'not yet unlocked') : `owned ${owned}`}
                 </div>
               </div>
             );

@@ -18,6 +18,7 @@ import '../mining.css';
 // equipped here is what the next run launches with (see FittingPanel's
 // read-only Chassis section on the fitting page).
 const FULL_BUILD = '__full__';
+const EQUIPMENT_CATEGORY = 'equipment';
 
 function categoryLabel(cat: string): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1);
@@ -36,6 +37,7 @@ export default function BuildPage() {
   const [balance, setBalance] = useState<string | null>(null);
   const [chassis, setChassis] = useState<Chassis>(() => chassisFromEffects({}));
   const [slotTotal, setSlotTotal] = useState(CFG.SLOT_TOTAL);
+  const [equipmentSlotTotal, setEquipmentSlotTotal] = useState(0);
   const [authRequired, setAuthRequired] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -58,6 +60,7 @@ export default function BuildPage() {
     setBalance(data.balance);
     setChassis(data.chassis);
     setSlotTotal(data.slotTotal);
+    setEquipmentSlotTotal(data.equipmentSlotTotal);
   }, []);
 
   const didLoadRef = useRef(false);
@@ -67,10 +70,11 @@ export default function BuildPage() {
     load();
   }, [load]);
 
-  // 'expansion' isn't equippable — it's a permanent capacity purchase (see
-  // the Store), not something to add/remove per run, so it doesn't get a tab.
+  // 'expansion' and 'equipment_slot' aren't equippable — they're one-time
+  // capacity purchases (see the Store), not something to add/remove per
+  // run, so neither gets a tab here.
   const categories = useMemo(
-    () => Array.from(new Set(catalog.map(c => c.category))).filter(c => c !== 'expansion'),
+    () => Array.from(new Set(catalog.map(c => c.category))).filter(c => c !== 'expansion' && c !== 'equipment_slot'),
     [catalog]
   );
 
@@ -79,9 +83,20 @@ export default function BuildPage() {
   const effectiveCategory = selectedCategory ?? categories[0] ?? null;
 
   const invByKey = useMemo(() => new Map(inventory.map(r => [r.item_key, r])), [inventory]);
+  const catByKey = useMemo(() => new Map(catalog.map(c => [c.item_key, c])), [catalog]);
 
-  const equippedTotal = inventory.reduce((n, r) => n + r.equipped_quantity, 0);
-  const slotsLeft = slotTotal - equippedTotal;
+  // Equipment items (ore siphon, line scanner) draw against their own
+  // separate slot pool, not the chassis one — see getEquipmentSlotTotal()
+  // in lib/mining-inventory.ts.
+  let equippedChassisTotal = 0;
+  let equippedEquipmentTotal = 0;
+  for (const row of inventory) {
+    if (row.equipped_quantity <= 0) continue;
+    if (catByKey.get(row.item_key)?.category === EQUIPMENT_CATEGORY) equippedEquipmentTotal += row.equipped_quantity;
+    else equippedChassisTotal += row.equipped_quantity;
+  }
+  const chassisSlotsLeft = slotTotal - equippedChassisTotal;
+  const equipmentSlotsLeft = equipmentSlotTotal - equippedEquipmentTotal;
 
   const equippedByCategory = useMemo(() => {
     const byKey = new Map(catalog.map(c => [c.item_key, c]));
@@ -94,11 +109,14 @@ export default function BuildPage() {
     return totals;
   }, [catalog, inventory]);
 
+  // Build only ever shows what's actually owned — an item you haven't
+  // bought yet isn't something to equip, it's something to go buy (see the
+  // Store). Full build narrows further, to what's currently equipped.
   const items = useMemo(() => {
     if (effectiveCategory === FULL_BUILD) {
       return catalog.filter(c => (invByKey.get(c.item_key)?.equipped_quantity ?? 0) > 0);
     }
-    return catalog.filter(c => c.category === effectiveCategory);
+    return catalog.filter(c => c.category === effectiveCategory && (invByKey.get(c.item_key)?.owned_quantity ?? 0) > 0);
   }, [catalog, effectiveCategory, invByKey]);
 
   async function setEquipped(itemKey: string, quantity: number) {
@@ -136,7 +154,8 @@ export default function BuildPage() {
     <div className="mining-root">
       <header>
         <div className="brand">Extraction <span>/ build</span></div>
-        <div className="seedline">slots {equippedTotal} / {slotTotal}</div>
+        <div className="seedline">slots {equippedChassisTotal} / {slotTotal}</div>
+        <div className="seedline">equipment {equippedEquipmentTotal} / {equipmentSlotTotal}</div>
         <div className="seedline">balance {balance ?? '—'}</div>
         <a className="hbtn" href="/games/mining/store" style={{ textDecoration: 'none' }}>Store</a>
         <a className="hbtn" href="/games/mining" style={{ textDecoration: 'none' }}>Back to run</a>
@@ -149,7 +168,7 @@ export default function BuildPage() {
             onClick={() => setSelectedCategory(FULL_BUILD)}
           >
             <span><FullBuildIcon /> Full build</span>
-            <b>{equippedTotal}</b>
+            <b>{equippedChassisTotal + equippedEquipmentTotal}</b>
           </button>
           <div className="build-nav-divider" />
           {categories.map(cat => {
@@ -171,12 +190,20 @@ export default function BuildPage() {
           {error && <div className="ptip" style={{ color: 'var(--danger)' }}>{error}</div>}
           <div className="lbl">
             {effectiveCategory === FULL_BUILD ? 'Full build' : effectiveCategory ? categoryLabel(effectiveCategory) : ''}
-            {' · '}{slotsLeft} slot{slotsLeft === 1 ? '' : 's'} free
+            {' · '}
+            {effectiveCategory === FULL_BUILD
+              ? `${chassisSlotsLeft} chassis / ${equipmentSlotsLeft} equipment free`
+              : (() => {
+                  const left = effectiveCategory === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft;
+                  return `${left} slot${left === 1 ? '' : 's'} free`;
+                })()}
           </div>
 
           {items.length === 0 && (
             <p className="ptip">
-              {effectiveCategory === FULL_BUILD ? 'Nothing equipped yet.' : 'Nothing in this category yet.'}
+              {effectiveCategory === FULL_BUILD
+                ? 'Nothing equipped yet.'
+                : <>You don&rsquo;t own anything in this category yet — visit the <a href="/games/mining/store">store</a>.</>}
             </p>
           )}
 
@@ -184,6 +211,7 @@ export default function BuildPage() {
             const owned = invByKey.get(item.item_key)?.owned_quantity ?? 0;
             const equipped = invByKey.get(item.item_key)?.equipped_quantity ?? 0;
             const busy = busyKey === item.item_key;
+            const roomLeft = item.category === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft;
             return (
               <div className="item-group" key={item.item_key}>
                 <div className="item-head">
@@ -196,26 +224,22 @@ export default function BuildPage() {
                   </div>
                 </div>
 
-                {owned === 0 ? (
-                  <div className="unit-empty">None owned — visit the <a href="/games/mining/store">store</a>.</div>
-                ) : (
-                  <div className="unit-row">
-                    {Array.from({ length: owned }, (_, i) => {
-                      const isEquipped = i < equipped;
-                      return (
-                        <button
-                          key={i}
-                          className={`unit-box ${isEquipped ? 'on' : ''}`}
-                          disabled={busy || (!isEquipped && slotsLeft <= 0)}
-                          onClick={() => setEquipped(item.item_key, isEquipped ? equipped - 1 : equipped + 1)}
-                          title={isEquipped ? 'Equipped — click to unequip' : 'Click to equip'}
-                        >
-                          {isEquipped ? '✓' : '+'}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <div className="unit-row">
+                  {Array.from({ length: owned }, (_, i) => {
+                    const isEquipped = i < equipped;
+                    return (
+                      <button
+                        key={i}
+                        className={`unit-box ${isEquipped ? 'on' : ''}`}
+                        disabled={busy || (!isEquipped && roomLeft <= 0)}
+                        onClick={() => setEquipped(item.item_key, isEquipped ? equipped - 1 : equipped + 1)}
+                        title={isEquipped ? 'Equipped — click to unequip' : 'Click to equip'}
+                      >
+                        {isEquipped ? '✓' : '+'}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="item-owned">owned {owned} · equipped {equipped}</div>
               </div>
             );

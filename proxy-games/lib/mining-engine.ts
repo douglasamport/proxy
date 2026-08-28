@@ -294,6 +294,14 @@ export const CFG = {
 
   AI_SAFETY: 1.18, // baseline turns back at this margin
   AI_RESERVE: 3.0, // extra fuel the baseline always keeps in hand
+
+  // Single-use equipment (see applySiphon/applyLineScan). What these items
+  // COST lives in item_catalog like everything else; what they DO when
+  // used is a run mechanic, so it lives here — same split as DIG_FUEL or
+  // PING_COOLDOWN, which are also formulas rather than shop economics.
+  SIPHON_MAX_UNITS: 10, // hard cap: burns at most this many carried ore units per use
+  SIPHON_FUEL_PER_UNIT: 2, // fuel gained per unit of ore burned
+  LINE_SCAN_FUEL_COST: 6, // flat fuel cost to fire a line scan
 };
 
 /* ============================================================================
@@ -1007,6 +1015,95 @@ function bearingOf(dx: number, dy: number): string {
   const a = (Math.atan2(dy, dx) * 180) / Math.PI;
   const names = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"];
   return names[(Math.round(a / 45) + 8) % 8];
+}
+
+/* --- Single-use equipment ----------------------------------------------
+   Ore siphon and line scanner: consumable field tools, not passive gear.
+   The caller (see lib/mining-inventory.ts / the run action routes) is
+   responsible for checking the player actually has one equipped and for
+   removing it from inventory after a successful (err-free) use — these
+   functions only touch RunState, same contract as every other apply*.
+---------------------------------------------------------------------------- */
+
+// Burns carried ore for fuel — trades tonnage you're already holding for
+// range, rather than raising capacity. Hard limits: never burns more than
+// the tank can actually absorb, and never more than SIPHON_MAX_UNITS in
+// one use (on top of only having one use to begin with).
+export function applySiphon(state: RunState): ApplyResult {
+  const s = clone(state);
+  if (s.status !== "active") return { s, err: "run over" };
+  if (s.carrying.length === 0) return { s, err: "nothing carried to burn" };
+  const headroom = s.chassis.fuelCap - s.fuel;
+  if (headroom <= 0) return { s, err: "fuel already full" };
+
+  const maxForHeadroom = Math.ceil(headroom / CFG.SIPHON_FUEL_PER_UNIT);
+  let toBurn = Math.min(CFG.SIPHON_MAX_UNITS, maxForHeadroom);
+
+  // Burns the lowest grade first — no UI here for the player to choose,
+  // and the sensible default wouldn't sacrifice the best ore either.
+  const sorted = [...s.carrying].sort((a, b) => a.tier - b.tier);
+  let burned = 0;
+  const kept: OreLoad[] = [];
+  for (const load of sorted) {
+    if (toBurn <= 0) {
+      kept.push(load);
+      continue;
+    }
+    const take = Math.min(load.units, toBurn);
+    burned += take;
+    toBurn -= take;
+    const remaining = load.units - take;
+    if (remaining > 0) kept.push({ tier: load.tier, units: remaining });
+  }
+  s.carrying = kept;
+
+  const gained = Math.min(burned * CFG.SIPHON_FUEL_PER_UNIT, headroom);
+  s.fuel += gained;
+  s.log.push({
+    n: ++s.step,
+    t: `siphon · burned ${burned}u ore for +${gained.toFixed(1)} fuel`,
+    c: 0,
+    k: "good",
+  });
+  return { s };
+}
+
+// Full-length reveal down one row or column — exact cell truth (terrain,
+// hazard, gas, ore), not the fuzzy ore-only contacts a normal ping
+// returns. Stops at the field edge or the first hard seam (inclusive —
+// you learn it's a seam, then the beam is swallowed). The hard limit is
+// built into what it is: one line, once.
+export function applyLineScan(state: RunState, dirKey: DirKey): ApplyResult {
+  const s = clone(state);
+  if (s.status !== "active") return { s, err: "run over" };
+  if (s.fuel < CFG.LINE_SCAN_FUEL_COST)
+    return { s, err: "not enough fuel to scan" };
+  const d = DIRS[dirKey];
+  if (!inBounds(s.x + d[0], s.y + d[1]))
+    return { s, err: "edge of field — nothing to scan that way" };
+
+  s.fuel -= CFG.LINE_SCAN_FUEL_COST;
+  s.fuelUsed += CFG.LINE_SCAN_FUEL_COST;
+
+  let x = s.x + d[0],
+    y = s.y + d[1];
+  let revealed = 0;
+  while (inBounds(x, y)) {
+    const c = cellAt(s, x, y);
+    c.known = true;
+    revealed++;
+    if (c.seam) break;
+    x += d[0];
+    y += d[1];
+  }
+
+  s.log.push({
+    n: ++s.step,
+    t: `line scan ${dirKey} · ${revealed} cell${revealed === 1 ? "" : "s"} revealed`,
+    c: CFG.LINE_SCAN_FUEL_COST,
+    k: "good",
+  });
+  return { s };
 }
 
 export function applyEnd(state: RunState, force?: boolean): ApplyResult {
