@@ -1,8 +1,8 @@
-import Link from 'next/link';
-import { currentPlayer } from '@/lib/auth';
-import { loadCatalog, loadInventory } from '@/lib/mining-inventory';
-import { InventoryGrid } from './InventoryGrid';
-import type { OwnedItem } from './InventoryGrid';
+import Link from "next/link";
+import { currentPlayer } from "@/lib/auth";
+import { loadCatalog, loadInventory } from "@/lib/mining-inventory";
+import { InventoryGrid } from "../../components/InventoryGrid";
+import type { OwnedItem } from "../../components/InventoryGrid";
 
 // Everything a player owns, across every item they've bought — separate
 // from the build screen (which is about equipping a run's chassis) and the
@@ -16,8 +16,13 @@ export default async function InventoryPage() {
     return (
       <div className="mx-auto max-w-2xl px-6 py-12">
         <h1 className="mb-4 text-2xl font-bold">Sign in required</h1>
-        <p className="mb-6 text-slate-400">Your inventory is tied to your account.</p>
-        <Link href="/login" className="inline-block rounded bg-cyan-600 px-4 py-2 font-semibold text-slate-950">
+        <p className="mb-6 text-slate-400">
+          Your inventory is tied to your account.
+        </p>
+        <Link
+          href="/login"
+          className="inline-block rounded bg-cyan-600 px-4 py-2 font-semibold text-slate-950"
+        >
           Sign in
         </Link>
       </div>
@@ -25,13 +30,13 @@ export default async function InventoryPage() {
   }
 
   const [catalog, inventory] = await Promise.all([
-    loadCatalog('mining'),
+    loadCatalog("mining"),
     loadInventory(player.id),
   ]);
-  const byKey = new Map(catalog.map(c => [c.item_key, c]));
+  const byKey = new Map(catalog.map((c) => [c.item_key, c]));
   const items: OwnedItem[] = inventory
-    .filter(r => r.owned_quantity > 0)
-    .map(r => {
+    .filter((r) => r.owned_quantity > 0)
+    .map((r) => {
       const item = byKey.get(r.item_key);
       if (!item) return null;
       return {
@@ -51,10 +56,16 @@ export default async function InventoryPage() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Inventory</h1>
         <div className="flex gap-3 text-sm">
-          <Link href="/games/mining/build" className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500">
+          <Link
+            href="/games/mining/build"
+            className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500"
+          >
             Build
           </Link>
-          <Link href="/games/mining/store" className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500">
+          <Link
+            href="/games/mining/store"
+            className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500"
+          >
             Store
           </Link>
         </div>
@@ -62,10 +73,10 @@ export default async function InventoryPage() {
 
       {items.length === 0 ? (
         <p className="text-slate-400">
-          You don&rsquo;t own anything yet. Visit the{' '}
+          You don&rsquo;t own anything yet. Visit the{" "}
           <Link href="/games/mining/store" className="text-cyan-400 underline">
             store
-          </Link>{' '}
+          </Link>{" "}
           to get started.
         </p>
       ) : (

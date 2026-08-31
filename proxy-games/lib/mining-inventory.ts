@@ -111,7 +111,9 @@ export async function setEquipped(
   if (!row || quantity < 0 || quantity > row.owned_quantity) return "not_owned";
 
   const isEquipment = row.category === EQUIPMENT_CATEGORY;
-  const cap = isEquipment ? await getEquipmentSlotTotal(playerId) : await getSlotTotal(playerId);
+  const cap = isEquipment
+    ? await getEquipmentSlotTotal(playerId)
+    : await getSlotTotal(playerId);
 
   // Scoped to the same pool the item being changed belongs to — an
   // equipment item's count never competes with chassis gear, and vice versa.
@@ -149,8 +151,12 @@ export async function getSlotTotal(playerId: string): Promise<number> {
 // chassis_expansion is just the base price (the first one); the doubling
 // itself is the mechanic, not data, so it lives here rather than as a
 // stored-per-purchase number. +1 slot capacity, always, no equip step.
-export async function purchaseChassisExpansion(playerId: string, game: string): Promise<PurchaseItemResult> {
-  const [item] = await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and game = ${game} and active = true`;
+export async function purchaseChassisExpansion(
+  playerId: string,
+  game: string,
+): Promise<PurchaseItemResult> {
+  const [item] =
+    await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and game = ${game} and active = true`;
   if (!item) return { kind: "not_found" };
 
   const [owned] = await sql`
@@ -248,7 +254,10 @@ export async function purchaseEquipmentSlotUnlock(
 // live against player_inventory at the moment a run action tries to use
 // it, not snapshotted at launch like the rest of the loadout, since the
 // whole point is that it can run out mid-run.
-export async function hasEquippedConsumable(playerId: string, itemKey: string): Promise<boolean> {
+export async function hasEquippedConsumable(
+  playerId: string,
+  itemKey: string,
+): Promise<boolean> {
   const [row] = await sql`
     select equipped_quantity from player_inventory
     where player_id = ${playerId} and item_key = ${itemKey}
@@ -260,7 +269,10 @@ export async function hasEquippedConsumable(playerId: string, itemKey: string): 
 // succeeded (err-free) — a rejected/no-op use shouldn't cost the item.
 // Owned and equipped drop together: nothing is left "equipped" once the
 // only copy is gone.
-export async function consumeEquippedItem(playerId: string, itemKey: string): Promise<void> {
+export async function consumeEquippedItem(
+  playerId: string,
+  itemKey: string,
+): Promise<void> {
   await sql`
     update player_inventory
     set owned_quantity = owned_quantity - 1, equipped_quantity = equipped_quantity - 1, updated_at = now()
@@ -270,7 +282,9 @@ export async function consumeEquippedItem(playerId: string, itemKey: string): Pr
 
 // Item keys currently equipped in the equipment slot(s) — what the client
 // uses to decide which "use X" buttons to show during a run.
-export async function loadEquipmentAvailable(playerId: string): Promise<string[]> {
+export async function loadEquipmentAvailable(
+  playerId: string,
+): Promise<string[]> {
   const rows = await sql`
     select pi.item_key from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key

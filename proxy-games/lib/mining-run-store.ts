@@ -1,7 +1,25 @@
-import { randomUUID } from 'crypto';
-import { sql } from '@/db/client';
-import { CFG, atBase, heldUnits, returnCost, runAI, score } from './mining-engine';
-import type { Cell, Chassis, Contact, DirKey, LogEntry, OreLoad, RunState, RunStatus, ScoreResult, SurveyTier } from './mining-engine';
+import { randomUUID } from "crypto";
+import { sql } from "@/db/client";
+import {
+  CFG,
+  atBase,
+  heldUnits,
+  returnCost,
+  runAI,
+  score,
+} from "./mining-engine";
+import type {
+  Cell,
+  Chassis,
+  Contact,
+  DirKey,
+  LogEntry,
+  OreLoad,
+  RunState,
+  RunStatus,
+  ScoreResult,
+  SurveyTier,
+} from "./mining-engine";
 
 // Server-side row for an in-progress run. `state` is the full authoritative
 // RunState (only present once phase === 'active') — this never leaves the
@@ -11,7 +29,7 @@ export interface RunRow {
   player_id: string;
   game: string;
   seed: number;
-  phase: 'fitting' | 'active';
+  phase: "fitting" | "active";
   loadout: { item_key: string; quantity: number }[] | null;
   claim: number | null;
   survey: SurveyTier;
@@ -27,11 +45,14 @@ function serializeState(s: RunState): string {
 }
 
 function deserializeState(raw: unknown): RunState {
-  const parsed = raw as Omit<RunState, 'seen'> & { seen: number[] };
+  const parsed = raw as Omit<RunState, "seen"> & { seen: number[] };
   return { ...parsed, seen: new Set(parsed.seen) } as RunState;
 }
 
-export async function loadFittingRun(id: string, playerId: string): Promise<RunRow | null> {
+export async function loadFittingRun(
+  id: string,
+  playerId: string,
+): Promise<RunRow | null> {
   const [row] = await sql`
     select id, player_id, game, seed, phase, loadout, claim, survey, state
     from in_progress_runs
@@ -40,7 +61,10 @@ export async function loadFittingRun(id: string, playerId: string): Promise<RunR
   return (row as RunRow) ?? null;
 }
 
-export async function loadActiveRun(id: string, playerId: string): Promise<{ row: RunRow; state: RunState } | null> {
+export async function loadActiveRun(
+  id: string,
+  playerId: string,
+): Promise<{ row: RunRow; state: RunState } | null> {
   const [row] = await sql`
     select id, player_id, game, seed, phase, loadout, claim, survey, state
     from in_progress_runs
@@ -54,7 +78,11 @@ export async function loadActiveRun(id: string, playerId: string): Promise<{ row
 // what we read it as. Two concurrent requests against the same run can't
 // both win — the loser's update touches 0 rows and gets a conflict instead
 // of silently clobbering the winner's state.
-export async function saveActiveState(id: string, expectedStep: number, next: RunState): Promise<boolean> {
+export async function saveActiveState(
+  id: string,
+  expectedStep: number,
+  next: RunState,
+): Promise<boolean> {
   const [row] = await sql`
     update in_progress_runs
     set state = ${serializeState(next)}::jsonb, updated_at = now()
@@ -65,8 +93,16 @@ export async function saveActiveState(id: string, expectedStep: number, next: Ru
 }
 
 export interface PublicCell {
-  x: number; y: number; known: boolean;
-  tier: number; units: number; hazard: number; gas: boolean; seam: boolean; cavern: boolean; dug: boolean;
+  x: number;
+  y: number;
+  known: boolean;
+  tier: number;
+  units: number;
+  hazard: number;
+  gas: boolean;
+  seam: boolean;
+  cavern: boolean;
+  dug: boolean;
 }
 
 // Never send anything about a cell the player hasn't actually seen. Kept as
@@ -74,20 +110,55 @@ export interface PublicCell {
 // client's existing idx()/cellAt() indexing keeps working unmodified —
 // redacted cells render identically to how "unknown" cells already render.
 function redactCells(cells: Cell[]): PublicCell[] {
-  return cells.map(c => c.known
-    ? { x: c.x, y: c.y, known: true, tier: c.tier, units: c.units, hazard: c.hazard, gas: c.gas, seam: c.seam, cavern: c.cavern, dug: c.dug }
-    : { x: c.x, y: c.y, known: false, tier: 0, units: 0, hazard: 0, gas: false, seam: false, cavern: false, dug: false });
+  return cells.map((c) =>
+    c.known
+      ? {
+          x: c.x,
+          y: c.y,
+          known: true,
+          tier: c.tier,
+          units: c.units,
+          hazard: c.hazard,
+          gas: c.gas,
+          seam: c.seam,
+          cavern: c.cavern,
+          dug: c.dug,
+        }
+      : {
+          x: c.x,
+          y: c.y,
+          known: false,
+          tier: 0,
+          units: 0,
+          hazard: 0,
+          gas: false,
+          seam: false,
+          cavern: false,
+          dug: false,
+        },
+  );
 }
 
 export interface PublicRunView {
   runId: string;
-  x: number; y: number; dir: DirKey | null;
+  x: number;
+  y: number;
+  dir: DirKey | null;
   base: { x: number; y: number };
-  fuel: number; sink: number; energy: number; energyStart: number;
+  fuel: number;
+  sink: number;
+  energy: number;
+  energyStart: number;
   chassis: Chassis;
-  carrying: OreLoad[]; banked: OreLoad[];
-  trip: number; survey: SurveyTier; pings: number; pingReady: number; step: number;
-  contacts: Contact[]; bearing: { dir: string; mass: number } | null;
+  carrying: OreLoad[];
+  banked: OreLoad[];
+  trip: number;
+  survey: SurveyTier;
+  pings: number;
+  pingReady: number;
+  step: number;
+  contacts: Contact[];
+  bearing: { dir: string; mass: number } | null;
   cells: PublicCell[];
   log: LogEntry[];
   status: RunStatus;
@@ -103,38 +174,49 @@ export interface PublicRunView {
 export function toPublicView(runId: string, s: RunState): PublicRunView {
   return {
     runId,
-    x: s.x, y: s.y, dir: s.dir,
+    x: s.x,
+    y: s.y,
+    dir: s.dir,
     base: s.base,
-    fuel: s.fuel, sink: s.sink, energy: s.energy, energyStart: s.energyStart,
+    fuel: s.fuel,
+    sink: s.sink,
+    energy: s.energy,
+    energyStart: s.energyStart,
     chassis: s.chassis,
-    carrying: s.carrying, banked: s.banked,
-    trip: s.trip, survey: s.survey, pings: s.pings, pingReady: s.pingReady, step: s.step,
-    contacts: s.contacts, bearing: s.bearing,
+    carrying: s.carrying,
+    banked: s.banked,
+    trip: s.trip,
+    survey: s.survey,
+    pings: s.pings,
+    pingReady: s.pingReady,
+    step: s.step,
+    contacts: s.contacts,
+    bearing: s.bearing,
     cells: redactCells(s.cells),
     log: s.log,
     status: s.status,
-    homeCost: s.status === 'active' ? returnCost(s, s.x, s.y) : 0,
+    homeCost: s.status === "active" ? returnCost(s, s.x, s.y) : 0,
   };
 }
 
 // Shared load -> apply -> save-with-conflict-check pattern for move/extract/ping.
 export type ActiveActionResult =
-  | { kind: 'ok'; view: PublicRunView; err?: string }
-  | { kind: 'not_found' }
-  | { kind: 'conflict' };
+  | { kind: "ok"; view: PublicRunView; err?: string }
+  | { kind: "not_found" }
+  | { kind: "conflict" };
 
 export async function applyActiveAction(
   id: string,
   playerId: string,
-  apply: (state: RunState) => { s: RunState; err?: string }
+  apply: (state: RunState) => { s: RunState; err?: string },
 ): Promise<ActiveActionResult> {
   const loaded = await loadActiveRun(id, playerId);
-  if (!loaded) return { kind: 'not_found' };
+  if (!loaded) return { kind: "not_found" };
   const expectedStep = loaded.state.step;
   const r = apply(loaded.state);
   const saved = await saveActiveState(id, expectedStep, r.s);
-  if (!saved) return { kind: 'conflict' };
-  return { kind: 'ok', view: toPublicView(id, r.s), err: r.err };
+  if (!saved) return { kind: "conflict" };
+  return { kind: "ok", view: toPublicView(id, r.s), err: r.err };
 }
 
 // Scores both sides, writes the run + a balance_transactions ledger row +
@@ -144,7 +226,10 @@ export async function applyActiveAction(
 // Shared by POST /api/runs/[id]/end (the player explicitly ending, or the
 // client noticing an auto-terminated run) and settleAbandonedRuns() below
 // (a run that ended and was simply never reported).
-export async function settleRun(row: RunRow, state: RunState): Promise<{ you: ScoreResult; ai: ScoreResult }> {
+export async function settleRun(
+  row: RunRow,
+  state: RunState,
+): Promise<{ you: ScoreResult; ai: ScoreResult }> {
   const you = score(state);
   const ai = score(runAI(state.seed, state.chassis, state.energyStart));
 
@@ -179,7 +264,10 @@ export async function settleRun(row: RunRow, state: RunState): Promise<{ you: Sc
 // Deliberately does NOT touch rows still genuinely status: 'active' —
 // abandoning a run you don't like mid-play has always been free and stays
 // that way; this only catches outcomes that already happened.
-export async function settleAbandonedRuns(playerId: string, game: string): Promise<void> {
+export async function settleAbandonedRuns(
+  playerId: string,
+  game: string,
+): Promise<void> {
   const rows = await sql`
     select id, player_id, game, seed, phase, loadout, claim, survey, state
     from in_progress_runs
@@ -197,7 +285,11 @@ export async function settleAbandonedRuns(playerId: string, game: string): Promi
 // (POST /api/runs/field, dev reseed, refit, play-again) — NOT used for a
 // plain resume, which should leave an existing fitting/active run alone.
 // See app/api/runs/current/route.ts for the resume-or-create path.
-export async function assignNewField(playerId: string, game: string, seed: number): Promise<{ runId: string; balance: string }> {
+export async function assignNewField(
+  playerId: string,
+  game: string,
+  seed: number,
+): Promise<{ runId: string; balance: string }> {
   await settleAbandonedRuns(playerId, game);
   await sql`delete from in_progress_runs where player_id = ${playerId} and game = ${game} and phase = 'fitting'`;
 
@@ -207,14 +299,15 @@ export async function assignNewField(playerId: string, game: string, seed: numbe
     returning id
   `;
 
-  const [{ balance }] = await sql`select balance from players where id = ${playerId}`;
+  const [{ balance }] =
+    await sql`select balance from players where id = ${playerId}`;
   return { runId: row.id, balance };
 }
 
 export type PurchaseResult =
-  | { kind: 'ok'; balance: string }
-  | { kind: 'insufficient_funds' }
-  | { kind: 'not_found' };
+  | { kind: "ok"; balance: string }
+  | { kind: "insufficient_funds" }
+  | { kind: "not_found" };
 
 // A survey tier is charged immediately on selection now, not folded into
 // the run's net at settlement (see the comment on `cost` in score()).
@@ -225,14 +318,18 @@ export type PurchaseResult =
 // anything further. The WHERE clause also means two concurrent purchases
 // (two tabs, a fast double-click) can't both succeed off a stale balance.
 export async function purchaseSurvey(
-  runRowId: string, playerId: string, game: string, tier: SurveyTier, cost: number
+  runRowId: string,
+  playerId: string,
+  game: string,
+  tier: SurveyTier,
+  cost: number,
 ): Promise<PurchaseResult> {
   const [deducted] = await sql`
     update players set balance = balance - ${cost}
     where id = ${playerId} and balance >= ${cost}
     returning balance
   `;
-  if (!deducted) return { kind: 'insufficient_funds' };
+  if (!deducted) return { kind: "insufficient_funds" };
 
   const results = await sql.transaction([
     sql`
@@ -252,10 +349,10 @@ export async function purchaseSurvey(
     // another tab, concurrently settled, etc.) — refund rather than
     // silently keep money for a survey that was never actually recorded.
     await sql`update players set balance = balance + ${cost} where id = ${playerId}`;
-    return { kind: 'not_found' };
+    return { kind: "not_found" };
   }
 
-  return { kind: 'ok', balance: deducted.balance };
+  return { kind: "ok", balance: deducted.balance };
 }
 
 export { CFG, atBase, heldUnits };
