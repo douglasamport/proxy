@@ -1,6 +1,6 @@
 # Build Spec — Ore Taxonomy, Progression, and the Ore Economy
 
-*Staged build for the mining minigame. Seven stages, each shipping something playable. Build them in order — several depend on decisions made in earlier stages, and stage 6 will break the autopilot guardrail if stages 1–5 are not settled first.*
+*Staged build for the mining minigame. Eight stages (0–7), each shipping something playable. Build them in order — several depend on decisions made in earlier stages, stage 0 is a prerequisite for verifying any of the others, and stage 6 will break the autopilot guardrail if stages 1–5 are not settled first.*
 
 ---
 
@@ -16,6 +16,8 @@ The mining game currently works and is balanced. A run is: fit a chassis from hu
 - **Fog is the anti-cheat.** The server never sends the client cells it has not earned.
 
 Two bugs were found the hard way and must not be reintroduced. The autopilot once cherry-picked high-grade ore because a profit filter acted as a grade-gated travel permit. It once oscillated between two equally-scored targets until it ran dry. Both were invisible in single runs and obvious across 300 seeded batches. **Verify statistically, not anecdotally.**
+
+**Autopilot tuning is deferred to Stage 7.** The Stage 0 harness (below) exists and works, but the "<10% losing runs" figure in the invariant above is a *target* for the end of this build, not a gate on Stages 1–6. The current 10-slot game is genuinely hard early on — the autopilot losing a lot right now reflects that difficulty, not a bug. Use the harness through Stages 1–6 only for "did this stage change the numbers at all" regression checks against whatever the baseline was before that stage, not against the 10% target. Actually hitting the target is Stage 7's job, alongside the rest of the balance work there.
 
 ---
 
@@ -74,18 +76,30 @@ At full unlock the field is roughly four times its starting area. **This is inte
 
 ---
 
+## Stage 0 — Autopilot statistical harness
+
+A prerequisite for every acceptance check in this doc — not in the original seven, but nothing below can be verified without it, so it goes first.
+
+- A script that runs `createRun(seed, chassis, claim)` → `runAI(seed, chassis, claim)` → `score()` across N seeds (300 by default, parameterizable) and reports: losing-run rate, average grade, claim-fill rate.
+- No engine changes. This just gives every later "statistically unchanged" / "<10% losing runs" acceptance line something real to check against.
+
+---
+
 ## Stage 1 — Ore taxonomy as data
 
 Ore types exist in the data model. No gameplay change.
 
-- Add an `ore_types` catalog: `key`, `label`, `tier`, `grade_values[4]`, `value_multiplier`, `depth_gate`, `adds_map_size`.
+**Naming note:** the engine currently calls the per-pocket 1–4 quality axis `tier` (`Cell.tier`, `GRADE_VALUE`). That name collides with this doc's "Tier 1–4" (Common/Precious/Semiconductor/Rare-earth), which is a different axis — which mineral, not how good this particular pocket of it is. Stage 1 renames the engine field to `grade` and adds a separate `oreType` field per cell (which mineral; its rarity tier and `depth_gate` live on the `ore_types` row it points to). `Cell.grade` stays exactly what `Cell.tier` is today — an index into that ore type's own `grade_values[4]`.
+
+- Add an `ore_types` catalog: `key`, `label`, `tier` (rarity class 1–4, per the taxonomy table), `grade_values[4]`, `value_multiplier`, `depth_gate`, `adds_map_size`.
 - Existing ore in generated fields becomes copper.
 - Field generation places ore types respecting `depth_gate`. With only copper unlocked, nothing changes about where ore appears.
 - The engine's scoring reads `grade_values` and `value_multiplier` from the ore type rather than the hardcoded `GRADE_VALUE` array.
+- `Cell.units` (the random 2–7 quantity per pocket) is unchanged and stays independent of grade — grade is still a *price* multiplier per unit, not a quantity. See Stage 3 for how this becomes a flat per-ore quantity in the player's inventory.
 
 **Ships:** identical gameplay. Pockets now say "Copper" rather than only a grade number.
 
-**Acceptance:** run the existing 300-seed autopilot sweep. Losing-run rate and average grade must be statistically unchanged. If they moved, the refactor changed behaviour.
+**Acceptance:** run the Stage 0 autopilot sweep. Losing-run rate and average grade must be statistically unchanged. If they moved, the refactor changed behaviour.
 
 ---
 
@@ -93,7 +107,7 @@ Ore types exist in the data model. No gameplay change.
 
 A run's output becomes a choice.
 
-- Extend the existing inventory to hold ore by type and grade. Ore is a new item category, not a new system.
+- Extend the existing inventory to hold ore **by type only** — one item per ore (13 rows total: copper, zinc, iron, silver, gold, platinum, silica, germanium, cadmium, neodymium, yttrium, lanthanum, tantalum). Grade is not a separate inventory dimension; see the conversion rule below. Ore is a new item category, not a new system.
 - **Profit is calculated and displayed at the end of every run regardless of choice.** The player then chooses **Collect credits** or **Stockpile ore**.
 - The choice is per-run, not per-ore-type.
 - Stockpiled ore displays in the inventory grid via `InventoryCard`.
@@ -108,7 +122,20 @@ A run's output becomes a choice.
 Closes the economy loop.
 
 - **Ore sells at exactly its cash-in value.** Cash-in price and sell price are identical. The reason to stockpile is that refining turns ore into something worth more than either — never an artificial spread.
-- **Components sell back at 50% of purchase price.**
+- **One flat sell price per ore type, not per grade.** The engine's existing extraction math is untouched — a pocket still yields a random 2–7 units, each already worth `grade × ore multiplier × base price` by the time it's mined (see Stage 1). What changes is how that computed value becomes inventory: at bank time, the run's total mined value for that ore type converts into a *quantity* of the ore's single flat-priced item (`quantity = value / sell_price`, rounded). A grade-4 haul doesn't get a better price — it becomes a bigger pile of the same item, because it was worth more to begin with. This is why one row per ore is enough: price never varies, only how much of it you're holding.
+- **Buy price is a fixed markup over sell price, by rarity tier** — not live yet (no buy-side market exists), but stored now so the schema doesn't need revisiting when it does:
+
+  | Tier | Ore | Buy price = sell price × |
+  |---|---|---|
+  | 1 — Common | Copper, Zinc, Iron | 1.2× |
+  | 2 — Precious | Silver, Gold, Platinum | 2× |
+  | 3 — Semiconductor | Silica, Germanium, Cadmium | 10× |
+  | 4 — Rare earth | Neodymium, Yttrium, Lanthanum, Tantalum | 100× |
+
+  Rare earth's markup is deliberately punishing — buying it from an NPC store should never be a sane option. The intent is a market that's almost entirely player-driven eventually: mining is how you get rare earth cheap, and the (future) player-to-player market is how it actually circulates. A player who wants rare earth without mining pays a 100x premium, on purpose.
+- Copper's sell price is the anchor; every other ore's sell price is copper's price × that ore's `value_multiplier` from the taxonomy table (Stage 1).
+- No live buy/sell UI in this stage — just `cost` (buy price) and a new `sell_value` on the ore catalog rows, populated and ready for the store surface Stage 5 adds.
+- **Components sell back at 50% of purchase price.** This is a different mechanism from ore's flat stored price — equipment's `sell_value` is a *ratio of its own cost*, ore's is an *independently stored* number. Same two columns on `item_catalog`, two different rules depending on category.
 - **Chassis expansion slots cannot be sold.** A sold slot is indistinguishable from an unpurchased one and would corrupt the doubling-cost calculation.
 - Add `sellable` and `sell_value` to the item catalog rather than hardcoding 50%.
 
@@ -156,7 +183,7 @@ The mechanism for unlocking new ore.
 - New store surface, same shape as the existing item store, reusing `ItemCard` and `FilterBar`.
 - **Licences are sold per mineral, not per tier.** Thirteen separate unlocks.
 - Unlock state is per player. A licence makes that mineral eligible for field generation and adds its map-size bonus.
-- Also sells drive tiers, fuel types, and consumables from stage 4.
+- Also sells drive tiers, fuel types, and consumables from stage 4 — and, eventually, ore itself, using the `cost`/`sell_value` pair Stage 3 already populates. This is where "almost entirely player driven" starts to matter: a live buy side is the last piece before ore can circulate between players instead of just draining into an NPC price.
 - Licence prices are large enough that each unlock is a milestone. Tier 4 licences should take a long time to afford.
 
 **Acceptance:** a player with only the copper licence generates fields statistically identical to today's.
