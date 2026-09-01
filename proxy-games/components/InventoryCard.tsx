@@ -3,54 +3,7 @@
 import { InventoryCardProps } from "@/lib/mining-types";
 
 import { ACCENTS, ATOMS, SURFACE } from "@/lib/mining-theme";
-
-/** Worn plating — same language as the store card, narrower strip. */
-function PlateStrip({ tint }: { tint: string }) {
-  return (
-    <svg
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      viewBox="0 0 30 100"
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      <rect
-        x="3"
-        y="4"
-        width="24"
-        height="92"
-        fill="none"
-        stroke="#000"
-        strokeOpacity=".28"
-        strokeWidth="1"
-      />
-      {[14, 38, 62, 86].map((y) => (
-        <circle key={y} cx="6" cy={y} r="1.2" fill="#000" fillOpacity=".35" />
-      ))}
-      <path
-        d="M0 54 q6 -2 12 0 t18 1"
-        fill="none"
-        stroke="#000"
-        strokeOpacity=".28"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path d="M30 0 L30 14 L18 0 Z" fill="#000" fillOpacity=".28" />
-      <path
-        d="M30 14 L18 0"
-        stroke={tint}
-        strokeOpacity=".45"
-        strokeWidth="1"
-      />
-      <path
-        d="M0 97 H30"
-        stroke="#000"
-        strokeOpacity=".38"
-        strokeWidth="5"
-        strokeDasharray="3 3"
-      />
-    </svg>
-  );
-}
+import { PlateStrip } from "@/components/PlateOverlay";
 
 export function InventoryCard({
   label,

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import "./mining.css";
 import { CFG, chassisFromEffects } from "@/lib/mining-engine";
 import type {
   Chassis,
@@ -23,6 +22,8 @@ import {
 } from "./components/RunScreen";
 import { ResultsModal } from "./components/ResultsModal";
 import { SurveyPurchaseModal } from "./components/SurveyPurchaseModal";
+import { GameHeader } from "@/components/GameHeader";
+import { ACCENTS, ATOMS, SURFACE } from "@/lib/mining-theme";
 
 type Phase = "fit" | "run";
 
@@ -338,74 +339,50 @@ export default function MiningPage() {
 
   if (authRequired) {
     return (
-      <div className="mining-root">
-        <header>
-          <div className="brand">
-            Extraction <span>/ run prototype</span>
-          </div>
-        </header>
-        <main className="fit-layout">
-          <div className="fit-controls sect">
-            <div className="lbl">Sign in required</div>
-            <p>
-              Live run state now lives server-side against your account, so
-              playing (not just saving) needs you signed in.
-            </p>
-            <a
-              className="go"
-              href="/login"
-              style={{
-                display: "inline-block",
-                textDecoration: "none",
-                textAlign: "center",
-              }}
-            >
-              Sign in
-            </a>
-          </div>
+      <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+        <GameHeader section="run" />
+        <main className="mx-auto max-w-xl px-6 py-16 text-center">
+          <p className={`text-sm ${ATOMS.textDim}`}>
+            Live run state now lives server-side against your account, so playing (not just saving) needs you signed in.
+          </p>
+          <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
+            Sign in
+          </a>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="mining-root">
-      <header>
-        <div className="brand">
-          Extraction <span>/ run prototype</span>
-        </div>
+    <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+      <GameHeader section="run prototype">
         {SHOW_SEED_CONTROLS && (
-          <>
-            <div className="seedline">
-              seed{" "}
-              <input
-                placeholder="random"
-                value={devSeedInput}
-                onChange={(e) => setDevSeedInput(e.target.value)}
-              />
-            </div>
-            <button className="hbtn" onClick={handleReseed}>
+          <div className="flex items-center gap-2">
+            <span className={`font-mono text-[11px] ${ATOMS.textDim}`}>seed</span>
+            <input
+              placeholder="random"
+              value={devSeedInput}
+              onChange={(e) => setDevSeedInput(e.target.value)}
+              className={`w-24 rounded border ${ATOMS.borderLine} bg-transparent px-2 py-1 font-mono text-[11px] ${ATOMS.textPrimary}`}
+            />
+            <button onClick={handleReseed} className={`rounded border ${ATOMS.borderLine} px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.12em] ${ATOMS.textDim} transition ${SURFACE.navLinkHover}`}>
               New field
             </button>
-          </>
+          </div>
         )}
         <button
-          className="hbtn"
           onClick={handleRefit}
-          disabled={phase === "fit"}
+          disabled={phase === 'fit'}
+          className={`rounded border ${ATOMS.borderLine} px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.12em] ${ATOMS.textDim} transition ${SURFACE.navLinkHover} disabled:cursor-not-allowed disabled:opacity-30`}
         >
           Refit
         </button>
-      </header>
+      </GameHeader>
 
       {phase === "fit" ? (
-        <main className="fit-layout">
-          <div className="fit-controls">
-            {fitError && (
-              <div className="ptip" style={{ color: "var(--danger)" }}>
-                {fitError}
-              </div>
-            )}
+        <main className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-6 py-8 lg:grid-cols-[minmax(340px,42%)_1fr]">
+          <div>
+            {fitError && <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{fitError}</div>}
             <FittingPanel
               chassis={chassis}
               claim={claim}
@@ -418,18 +395,14 @@ export default function MiningPage() {
               onLaunch={handleLaunch}
             />
           </div>
-          <div className="fit-info">
-            <InfoPanel claim={claim} />
-          </div>
+          <InfoPanel claim={claim} />
         </main>
       ) : (
-        <main className="run-layout">
-          <div className="col">{view && <StatusPanel run={view} />}</div>
+        <main className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-6 py-8 lg:grid-cols-[236px_1fr_280px]">
+          <div>{view && <StatusPanel run={view} />}</div>
 
-          <div className="col mid">
-            <div className="fieldwrap">
-              {view && <RunField run={view} onMove={doMove} />}
-            </div>
+          <div className="flex flex-col items-center gap-4">
+            {view && <RunField run={view} onMove={doMove} />}
             {view && (
               <RunControls
                 run={view}
@@ -444,9 +417,9 @@ export default function MiningPage() {
             )}
           </div>
 
-          <div className="col">
-            <div className="lbl">Run ledger</div>
-            {view && <RunLedger run={view} />}
+          <div className="min-h-0">
+            <div className={`mb-2 font-mono text-[10px] uppercase tracking-[.16em] ${ATOMS.textDim}`}>Run ledger</div>
+            <div className="h-[70vh]">{view && <RunLedger run={view} />}</div>
           </div>
         </main>
       )}

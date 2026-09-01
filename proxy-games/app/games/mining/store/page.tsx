@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import type { StatKey } from "@/lib/mining-engine";
 import type { CatalogItem, InventoryRow } from "@/lib/mining-inventory";
 import { categoryIcon } from "../icons";
-import "../mining.css";
 import { ItemCard } from "@/components/ItemCard";
 import { categoryOptions, FilterBar } from "@/components/FilterBar";
-import { accentForCategory } from "@/lib/mining-theme";
+import { GameHeader } from "@/components/GameHeader";
+import { accentForCategory, ACCENTS, ATOMS } from "@/lib/mining-theme";
 
 // Not imported as a value from lib/mining-inventory.ts — that module pulls
 // in the DB client, which has no business in a client bundle. It's just a
@@ -143,62 +143,31 @@ export default function StorePage() {
 
   if (authRequired) {
     return (
-      <div className="mining-root">
-        <header>
-          <div className="brand">
-            Extraction <span>/ store</span>
-          </div>
-        </header>
-        <main className="fit-layout">
-          <div className="fit-controls sect">
-            <div className="lbl">Sign in required</div>
-            <p>The store is tied to your account balance.</p>
-            <a
-              className="go"
-              href="/login"
-              style={{
-                display: "inline-block",
-                textDecoration: "none",
-                textAlign: "center",
-              }}
-            >
-              Sign in
-            </a>
-          </div>
+      <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+        <GameHeader section="store" links={[{ href: "/games/mining", label: "Back to run" }]} />
+        <main className="mx-auto max-w-xl px-6 py-16 text-center">
+          <p className={`text-sm ${ATOMS.textDim}`}>The store is tied to your account balance.</p>
+          <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
+            Sign in
+          </a>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="mining-root">
-      <header>
-        <div className="brand">
-          Extraction <span>/ store</span>
-        </div>
-        <div className="seedline">balance {balance ?? "—"}</div>
-        <a
-          className="hbtn"
-          href="/games/mining/build"
-          style={{ textDecoration: "none" }}
-        >
-          Build
-        </a>
-        <a
-          className="hbtn"
-          href="/games/mining"
-          style={{ textDecoration: "none" }}
-        >
-          Back to run
-        </a>
-      </header>
+    <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+      <GameHeader
+        section="store"
+        stats={[{ label: "balance", value: balance ?? "—" }]}
+        links={[
+          { href: "/games/mining/build", label: "Build" },
+          { href: "/games/mining", label: "Back to run" },
+        ]}
+      />
 
-      <main className="store-layout">
-        {error && (
-          <div className="ptip" style={{ color: "var(--danger)" }}>
-            {error}
-          </div>
-        )}
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        {error && <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>}
 
         <FilterBar
           legend="filter"

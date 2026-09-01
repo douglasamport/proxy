@@ -5,16 +5,20 @@ import { CFG, chassisFromEffects } from '@/lib/mining-engine';
 import type { Chassis, StatKey } from '@/lib/mining-engine';
 import type { CatalogItem, InventoryRow } from '@/lib/mining-inventory';
 import { categoryIcon, FullBuildIcon } from '../icons';
-import '../mining.css';
+import { GameHeader } from '@/components/GameHeader';
+import { FilterBar } from '@/components/FilterBar';
+import { EquipCard } from '@/components/EquipCard';
+import { StatsPanel } from '@/components/StatsPanel';
+import { accentForCategory, ACCENTS, ATOMS } from '@/lib/mining-theme';
 
 // The dedicated chassis build screen. Separate from the per-run fitting
 // flow on purpose: a loadout is now a pile of *owned* items (you might own
 // 3 basic fuel cells and 1 boosted one), and equipping mixes and matches
 // them — that only works as a master/detail browse, not a 7-row stepper.
-// Left: the 7 systems (plus a pinned "Full build" tab that shows
-// everything equipped at once, across categories). Middle: your owned
-// items for whichever tab is selected, each with an Add/Remove control.
-// Right: live chassis stats, recomputed after every equip change. What's
+// A filter bar picks the system (plus a pinned "Full build" option that
+// shows everything equipped at once, across categories); below it, one
+// EquipCard per owned item in that category. A stats panel on the side
+// shows live chassis stats, recomputed after every equip change. What's
 // equipped here is what the next run launches with (see FittingPanel's
 // read-only Chassis section on the fitting page).
 const FULL_BUILD = '__full__';
@@ -72,7 +76,7 @@ export default function BuildPage() {
 
   // 'expansion' and 'equipment_slot' aren't equippable — they're one-time
   // capacity purchases (see the Store), not something to add/remove per
-  // run, so neither gets a tab here.
+  // run, so neither gets a filter option here.
   const categories = useMemo(
     () => Array.from(new Set(catalog.map(c => c.category))).filter(c => c !== 'expansion' && c !== 'equipment_slot'),
     [catalog]
@@ -80,7 +84,7 @@ export default function BuildPage() {
 
   // Default the selection to the first category once the catalog loads —
   // not a mirrored copy of state, just filling in "nothing picked yet".
-  const effectiveCategory = selectedCategory ?? categories[0] ?? null;
+  const effectiveCategory = selectedCategory ?? categories[0] ?? FULL_BUILD;
 
   const invByKey = useMemo(() => new Map(inventory.map(r => [r.item_key, r])), [inventory]);
   const catByKey = useMemo(() => new Map(catalog.map(c => [c.item_key, c])), [catalog]);
@@ -137,129 +141,107 @@ export default function BuildPage() {
 
   if (authRequired) {
     return (
-      <div className="mining-root">
-        <header><div className="brand">Extraction <span>/ build</span></div></header>
-        <main className="fit-layout">
-          <div className="fit-controls sect">
-            <div className="lbl">Sign in required</div>
-            <p>Your chassis loadout is tied to your account.</p>
-            <a className="go" href="/login" style={{ display: 'inline-block', textDecoration: 'none', textAlign: 'center' }}>Sign in</a>
-          </div>
+      <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+        <GameHeader section="build" links={[{ href: '/games/mining', label: 'Back to run' }]} />
+        <main className="mx-auto max-w-xl px-6 py-16 text-center">
+          <p className={`text-sm ${ATOMS.textDim}`}>Your chassis loadout is tied to your account.</p>
+          <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
+            Sign in
+          </a>
         </main>
       </div>
     );
   }
 
+  const statRows = [
+    { label: 'Hold per trip', value: `${chassis.hold}u` },
+    { label: 'Fuel capacity', value: chassis.fuelCap.toFixed(0) },
+    { label: 'Dig a fresh cell', value: (1 / chassis.speed + CFG.DIG_FUEL).toFixed(2) },
+    { label: 'Drive a tunnel', value: (1 / chassis.speed * CFG.TUNNEL_MULT).toFixed(2) },
+    { label: 'Turn surcharge', value: (CFG.TURN_BASE / chassis.movement).toFixed(2) },
+    { label: 'Fresh digs available', value: `~${Math.floor(chassis.fuelCap / (1 / chassis.speed + CFG.DIG_FUEL))}` },
+    { label: 'Sink', value: String(chassis.sinkCap) },
+    { label: 'Ping range', value: `${chassis.sensorRange.toFixed(1)} cells` },
+    { label: 'Fix accuracy', value: `±${chassis.sensorBlur.toFixed(1)}` },
+    { label: 'Ping cost', value: `${chassis.pingFuel.toFixed(1)} fuel` },
+    { label: 'Grade estimate', value: `±${(chassis.analyser / 2).toFixed(1)} tiers` },
+  ];
+
+  const roomLeftForCategory = (cat: string) => (cat === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft);
+
   return (
-    <div className="mining-root">
-      <header>
-        <div className="brand">Extraction <span>/ build</span></div>
-        <div className="seedline">slots {equippedChassisTotal} / {slotTotal}</div>
-        <div className="seedline">equipment {equippedEquipmentTotal} / {equipmentSlotTotal}</div>
-        <div className="seedline">balance {balance ?? '—'}</div>
-        <a className="hbtn" href="/games/mining/store" style={{ textDecoration: 'none' }}>Store</a>
-        <a className="hbtn" href="/games/mining" style={{ textDecoration: 'none' }}>Back to run</a>
-      </header>
+    <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+      <GameHeader
+        section="build"
+        stats={[
+          { label: 'slots', value: `${equippedChassisTotal} / ${slotTotal}` },
+          { label: 'equipment', value: `${equippedEquipmentTotal} / ${equipmentSlotTotal}` },
+          { label: 'balance', value: balance ?? '—' },
+        ]}
+        links={[
+          { href: '/games/mining/store', label: 'Store' },
+          { href: '/games/mining', label: 'Back to run' },
+        ]}
+      />
 
-      <main className="build-layout">
-        <div className="build-nav">
-          <button
-            className={`navbtn full ${effectiveCategory === FULL_BUILD ? 'on' : ''}`}
-            onClick={() => setSelectedCategory(FULL_BUILD)}
-          >
-            <span><FullBuildIcon /> Full build</span>
-            <b>{equippedChassisTotal + equippedEquipmentTotal}</b>
-          </button>
-          <div className="build-nav-divider" />
-          {categories.map(cat => {
-            const Icon = categoryIcon(cat);
-            return (
-            <button
-              key={cat}
-              className={`navbtn ${cat === effectiveCategory ? 'on' : ''}`}
-              onClick={() => setSelectedCategory(cat)}
-            >
-              <span><Icon /> {categoryLabel(cat)}</span>
-              <b>{equippedByCategory.get(cat) ?? 0}</b>
-            </button>
-            );
-          })}
-        </div>
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        {error && <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>}
 
-        <div className="build-detail sect">
-          {error && <div className="ptip" style={{ color: 'var(--danger)' }}>{error}</div>}
-          <div className="lbl">
-            {effectiveCategory === FULL_BUILD ? 'Full build' : effectiveCategory ? categoryLabel(effectiveCategory) : ''}
-            {' · '}
-            {effectiveCategory === FULL_BUILD
-              ? `${chassisSlotsLeft} chassis / ${equipmentSlotsLeft} equipment free`
-              : (() => {
-                  const left = effectiveCategory === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft;
-                  return `${left} slot${left === 1 ? '' : 's'} free`;
-                })()}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_280px]">
+          <div>
+            <FilterBar
+              legend="system"
+              value={effectiveCategory}
+              onChange={setSelectedCategory}
+              options={[
+                { value: FULL_BUILD, label: 'Full build', Icon: FullBuildIcon, count: equippedChassisTotal + equippedEquipmentTotal },
+                ...categories.map(cat => ({
+                  value: cat,
+                  label: categoryLabel(cat),
+                  Icon: categoryIcon(cat),
+                  count: equippedByCategory.get(cat) ?? 0,
+                })),
+              ]}
+            />
+
+            <p className={`mb-4 text-[11px] ${ATOMS.textDim}`}>
+              {effectiveCategory === FULL_BUILD
+                ? `${chassisSlotsLeft} chassis / ${equipmentSlotsLeft} equipment slot${equipmentSlotsLeft === 1 ? '' : 's'} free`
+                : (() => {
+                    const left = roomLeftForCategory(effectiveCategory);
+                    return `${left} slot${left === 1 ? '' : 's'} free`;
+                  })()}
+            </p>
+
+            {items.length === 0 && (
+              <p className={`text-sm ${ATOMS.textDim}`}>
+                {effectiveCategory === FULL_BUILD
+                  ? 'Nothing fitted yet.'
+                  : <>You don&rsquo;t own anything in this category yet — visit the <a href="/games/mining/store" className={ATOMS.textTeal}>store</a>.</>}
+              </p>
+            )}
+
+            <div className="space-y-3">
+              {items.map(item => (
+                <EquipCard
+                  key={item.item_key}
+                  label={item.label}
+                  description={item.description}
+                  effects={Object.keys(item.effects).length ? effectsText(item.effects) : null}
+                  imageSrc={imgSrc(item)}
+                  ownedQuantity={invByKey.get(item.item_key)?.owned_quantity ?? 0}
+                  equippedQuantity={invByKey.get(item.item_key)?.equipped_quantity ?? 0}
+                  roomLeft={roomLeftForCategory(item.category)}
+                  busy={busyKey === item.item_key}
+                  accent={accentForCategory(item.category)}
+                  onEquippedChange={next => setEquipped(item.item_key, next)}
+                />
+              ))}
+            </div>
           </div>
 
-          {items.length === 0 && (
-            <p className="ptip">
-              {effectiveCategory === FULL_BUILD
-                ? 'Nothing equipped yet.'
-                : <>You don&rsquo;t own anything in this category yet — visit the <a href="/games/mining/store">store</a>.</>}
-            </p>
-          )}
-
-          {items.map(item => {
-            const owned = invByKey.get(item.item_key)?.owned_quantity ?? 0;
-            const equipped = invByKey.get(item.item_key)?.equipped_quantity ?? 0;
-            const busy = busyKey === item.item_key;
-            const roomLeft = item.category === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft;
-            return (
-              <div className="item-group" key={item.item_key}>
-                <div className="item-head">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- placeholder art until item_catalog.image_url is populated */}
-                  <img className="item-thumb" src={imgSrc(item)} alt="" width={72} height={72} />
-                  <div>
-                    <div className="item-label">{item.label}</div>
-                    {item.description && <div className="item-desc">{item.description}</div>}
-                    <div className="item-effects">{effectsText(item.effects)}</div>
-                  </div>
-                </div>
-
-                <div className="unit-row">
-                  {Array.from({ length: owned }, (_, i) => {
-                    const isEquipped = i < equipped;
-                    return (
-                      <button
-                        key={i}
-                        className={`unit-box ${isEquipped ? 'on' : ''}`}
-                        disabled={busy || (!isEquipped && roomLeft <= 0)}
-                        onClick={() => setEquipped(item.item_key, isEquipped ? equipped - 1 : equipped + 1)}
-                        title={isEquipped ? 'Equipped — click to unequip' : 'Click to equip'}
-                      >
-                        {isEquipped ? '✓' : '+'}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="item-owned">owned {owned} · equipped {equipped}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="build-stats sect">
-          <div className="lbl">Chassis stats</div>
-          <div className="derived">
-            <div><span>Hold per trip</span><b>{chassis.hold}u</b></div>
-            <div><span>Fuel capacity</span><b>{chassis.fuelCap.toFixed(0)}</b></div>
-            <div><span>Dig a fresh cell</span><b>{(1 / chassis.speed + CFG.DIG_FUEL).toFixed(2)}</b></div>
-            <div><span>Drive a tunnel</span><b>{(1 / chassis.speed * CFG.TUNNEL_MULT).toFixed(2)}</b></div>
-            <div><span>Turn surcharge</span><b>{(CFG.TURN_BASE / chassis.movement).toFixed(2)}</b></div>
-            <div><span>Fresh digs available</span><b>~{Math.floor(chassis.fuelCap / (1 / chassis.speed + CFG.DIG_FUEL))}</b></div>
-            <div><span>Sink</span><b>{chassis.sinkCap}</b></div>
-            <div><span>Ping range</span><b>{chassis.sensorRange.toFixed(1)} cells</b></div>
-            <div><span>Fix accuracy</span><b>±{chassis.sensorBlur.toFixed(1)}</b></div>
-            <div><span>Ping cost</span><b>{chassis.pingFuel.toFixed(1)} fuel</b></div>
-            <div><span>Grade estimate</span><b>±{(chassis.analyser / 2).toFixed(1)} tiers</b></div>
+          <div className="lg:sticky lg:top-6 lg:self-start">
+            <StatsPanel title="Chassis stats" rows={statRows} />
           </div>
         </div>
       </main>

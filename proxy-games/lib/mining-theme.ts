@@ -165,6 +165,12 @@ export const ATOMS = {
   textDim: "text-[#75858F]", // PALETTE.dim
   textDimmer: "text-[#5A6873]", // PALETTE.dimmer
   textVoid: "text-[#0B1116]", // PALETTE.void — button labels on a lit accent bg
+  textTeal: "text-[#54C6DC]", // PALETTE.teal, standalone (not an accent role)
+  textDanger: "text-[#D9564F]", // PALETTE.danger
+  textAmber: "text-[#E0A33E]", // PALETTE.amber
+  textOk: "text-[#7BB86F]", // PALETTE.ok
+  bgVoid: "bg-[#0B1116]", // PALETTE.void — page background
+  bgScrim: "bg-[#0B1116]/80", // PALETTE.void at 80% — modal overlay
   bgRock: "bg-[#0F141A]", // PALETTE.rock
   bgDisabled: "bg-[#2A343E]", // PALETTE.disabled
   borderLine: "border-[#2F3B48]", // PALETTE.line
@@ -191,6 +197,11 @@ export const SURFACE = {
   filterInactive:
     "border-[#2F3B48] bg-[#161C24] text-[#75858F] hover:border-[#3D4B59] hover:text-[#C9D4DE]",
   filterDotInactive: "bg-[#2F3B48] group-hover:bg-[#3D4B59]",
+  // Subtle nav-link hover — GameHeader's Store/Build/Back-to-run links.
+  navLinkHover: "hover:border-[#3D4B59] hover:text-[#C9D4DE]",
+  // Danger-tinted control (End run). PALETTE.danger at reduced opacity —
+  // a warning tone, not a full accent role.
+  btnWarn: "border-[#D9564F]/60 text-[#D9564F] hover:bg-[#D9564F]/10",
   // Buy-button disabled state. Kept as one complete literal, variant prefix
   // included — Tailwind's scanner matches whole class tokens as they appear
   // in source text, so `disabled:${ATOMS.bgDisabled}` would NOT generate
@@ -198,4 +209,7 @@ export const SURFACE = {
   // either side of the template expression). Any `disabled:x`/`hover:x`
   // combination has to be written out in full somewhere, not assembled.
   btnDisabled: "disabled:cursor-not-allowed disabled:bg-[#2A343E] disabled:text-[#5A6873]",
+  // The one "just do the thing" CTA color (Launch run) — not an accent
+  // role, since it's not about categorizing an item.
+  btnPrimary: "bg-[#54C6DC] text-[#0B1116] hover:brightness-110",
 } as const;

@@ -5,6 +5,14 @@ import { CFG, DIRS, idx, inBounds } from "@/lib/mining-engine";
 import type { DirKey } from "@/lib/mining-engine";
 import type { PublicRunView } from "@/lib/mining-run-store";
 import { atBase, heldUnits } from "../view";
+import { ATOMS, GAME, PALETTE, SURFACE } from "@/lib/mining-theme";
+// Only RunField still needs this — the field grid is the one piece kept on
+// mining.css (a dense per-cell HUD, not a card; see the comment on
+// RunField below). Scoped locally to that component's own .mining-root
+// wrapper, not applied to the rest of this now-Tailwind page.
+import "../mining.css";
+import { Gauge } from "@/components/Gauge";
+import { Swatch, KeyRow } from "@/components/Swatch";
 
 const ARROWS: Record<string, string> = {
   E: "→",
@@ -27,145 +35,74 @@ export function StatusPanel({ run }: { run: PublicRunView }) {
   const tight = run.fuel < home * 1.25;
   const thin = !atBase(run) && run.fuel < home * 1.2;
 
-  const gauge = (
-    cls: string,
-    name: string,
-    val: string | number,
-    max: number,
-    extra = "",
-  ) => (
-    <div className="gauge" key={name}>
-      <div className="gauge-top">
-        <span>{name}</span>
-        <b>
-          {val}
-          {extra}
-        </b>
-      </div>
-      <div className={`bar ${cls}`}>
-        <i
-          style={{
-            width: `${Math.max(0, Math.min(100, max ? (Number(val) / max) * 100 : 0))}%`,
-          }}
-        />
-      </div>
-    </div>
-  );
+  const posRows: [string, string, boolean?][] = [
+    ["Fuel home", home.toFixed(1), tight],
+    ["Heading", run.dir || "—"],
+    ["Hauls made", String(run.trip - 1)],
+    ["Survey", CFG.SURVEY[run.survey].label],
+    ["Pings used", String(run.pings)],
+    ["Contacts held", String(run.contacts.length)],
+    ["Banked", `${run.banked.reduce((n, o) => n + o.units, 0)}u`],
+    ["Carrying", `${held}u`],
+  ];
 
   return (
-    <>
-      <div className="sect">
-        <div className="lbl">Proxy</div>
-        {gauge(
-          "b-fuel",
-          "Fuel",
-          run.fuel.toFixed(1),
-          ch.fuelCap,
-          ` / ${ch.fuelCap}`,
-        )}
-        {gauge("b-sink", "Sink", run.sink, ch.sinkCap, ` / ${ch.sinkCap}`)}
-        {gauge("b-hold", "Hold", held, ch.hold, ` / ${ch.hold}u`)}
-        {gauge(
-          "b-energy",
-          "Claim left",
-          run.energy,
-          run.energyStart,
-          ` / ${run.energyStart}u`,
-        )}
-        {thin && (
-          <div
-            style={{
-              color: "var(--danger)",
-              fontSize: 11,
-              margin: "-4px 0 8px",
-            }}
-          >
-            Fuel is thin — you may not make it back
-          </div>
-        )}
-      </div>
-      <div className="sect">
-        <div className="lbl">Position</div>
-        <div className="derived">
-          <div>
-            <span>Fuel home</span>
-            <b style={{ color: tight ? "var(--danger)" : "var(--text)" }}>
-              {home.toFixed(1)}
-            </b>
-          </div>
-          <div>
-            <span>Heading</span>
-            <b>{run.dir || "—"}</b>
-          </div>
-          <div>
-            <span>Hauls made</span>
-            <b>{run.trip - 1}</b>
-          </div>
-          <div>
-            <span>Survey</span>
-            <b>{CFG.SURVEY[run.survey].label}</b>
-          </div>
-          <div>
-            <span>Pings used</span>
-            <b>{run.pings}</b>
-          </div>
-          <div>
-            <span>Contacts held</span>
-            <b>{run.contacts.length}</b>
-          </div>
-          <div>
-            <span>Banked</span>
-            <b>{run.banked.reduce((n, o) => n + o.units, 0)}u</b>
-          </div>
-          <div>
-            <span>Carrying</span>
-            <b>{held}u</b>
-          </div>
+    <div className="space-y-4">
+      <div className={`rounded-lg ${SURFACE.card} p-4`}>
+        <div className={SURFACE.label}>Proxy</div>
+        <div className="mt-3">
+          <Gauge tone="fuel" label="Fuel" value={run.fuel.toFixed(1)} max={ch.fuelCap} suffix={` / ${ch.fuelCap}`} />
+          <Gauge tone="sink" label="Sink" value={run.sink} max={ch.sinkCap} suffix={` / ${ch.sinkCap}`} />
+          <Gauge tone="hold" label="Hold" value={held} max={ch.hold} suffix={` / ${ch.hold}u`} />
+          <Gauge tone="energy" label="Claim left" value={run.energy} max={run.energyStart} suffix={` / ${run.energyStart}u`} />
         </div>
+        {thin && <div className={`-mt-1 mb-2 text-[11px] ${ATOMS.textDanger}`}>Fuel is thin — you may not make it back</div>}
       </div>
-      <div className="sect">
-        <div className="lbl">Grade key</div>
-        <div className="derived">
-          {[1, 2, 3, 4].map((t) => (
-            <div key={t}>
-              <span style={{ color: `var(--g${t})` }}>■ grade {t}</span>
-              <b>{CFG.GRADE_VALUE[t]} / unit</b>
+
+      <div className={`rounded-lg ${SURFACE.card} p-4`}>
+        <div className={SURFACE.label}>Position</div>
+        <div className="mt-3 space-y-1">
+          {posRows.map(([label, value, danger]) => (
+            <div key={label} className="flex justify-between text-[11px]">
+              <span className={ATOMS.textDim}>{label}</span>
+              <b className={danger ? ATOMS.textDanger : ATOMS.textPrimary}>{value}</b>
             </div>
           ))}
         </div>
       </div>
-      <div className="sect">
-        <div className="lbl">Field key</div>
-        <div className="keyrow">
-          <span className="sw rock"></span>unbroken rock
-        </div>
-        <div className="keyrow">
-          <span className="sw tun"></span>tunnel — cheap to re-cross
-        </div>
-        <div className="keyrow">
-          <span className="sw cav"></span>cavern — open ground, free to enter
-        </div>
-        <div className="keyrow">
-          <span className="sw sem"></span>hard seam — cannot be cut
-        </div>
-        <div className="keyrow">
-          <span className="sw haz">3</span>hazard, sink cost on first cut
-        </div>
-        <div className="keyrow">
-          <span className="sw haz gas2">8</span>gas pocket, far worse
-        </div>
-        <div className="keyrow">
-          <span className="sw con"></span>sensor contact — fuzzy until
-          triangulated
-        </div>
-        <div className="keyrow">
-          <span className="sw sur"></span>survey contact — no fix yet
+
+      <div className={`rounded-lg ${SURFACE.card} p-4`}>
+        <div className={SURFACE.label}>Grade key</div>
+        <div className="mt-3 space-y-1">
+          {[1, 2, 3, 4].map(t => (
+            <div key={t} className="flex justify-between text-[11px]">
+              <span className={ATOMS.textDim}><Swatch bg={GAME.grade[t] ?? PALETTE.grade1} />grade {t}</span>
+              <b className={ATOMS.textPrimary}>{CFG.GRADE_VALUE[t]} / unit</b>
+            </div>
+          ))}
         </div>
       </div>
-    </>
+
+      <div className={`rounded-lg ${SURFACE.card} p-4`}>
+        <div className={SURFACE.label}>Field key</div>
+        <div className="mt-3">
+          <KeyRow><Swatch bg={PALETTE.panel} border={PALETTE.line} />unbroken rock</KeyRow>
+          <KeyRow><Swatch bg={GAME.tunnel} border={GAME.tunnelEdge} />tunnel — cheap to re-cross</KeyRow>
+          <KeyRow><Swatch bg={GAME.cavern} border={GAME.cavernEdge} />cavern — open ground, free to enter</KeyRow>
+          <KeyRow><Swatch bg={GAME.seam} border={GAME.seamEdge} />hard seam — cannot be cut</KeyRow>
+          <KeyRow><Swatch bg={PALETTE.panel} border={PALETTE.line} color={PALETTE.danger} glyph="3" />hazard, sink cost on first cut</KeyRow>
+          <KeyRow><Swatch bg={PALETTE.panel} border={PALETTE.line} color={PALETTE.gas} glyph="8" />gas pocket, far worse</KeyRow>
+          <KeyRow><Swatch bg="rgba(84,198,220,.2)" border="rgba(84,198,220,.6)" />sensor contact — fuzzy until triangulated</KeyRow>
+          <KeyRow><Swatch bg="rgba(140,160,180,.15)" border="rgba(140,160,180,.7)" />survey contact — no fix yet</KeyRow>
+        </div>
+      </div>
+    </div>
   );
 }
 
+// The field grid stays on mining.css — a dense, per-cell pixel HUD is a
+// game-board rendering problem, not a card, and there was nothing to gain
+// by forcing it into Tailwind. Everything around it (above/below) moved.
 export function RunField({
   run,
   onMove,
@@ -274,7 +211,7 @@ export function RunField({
   const gx = (v: number) => 4 + v * (px + 2) + px / 2;
 
   return (
-    <>
+    <div className="mining-root">
       <div className="field" style={fieldStyle}>
         {cells}
       </div>
@@ -310,7 +247,7 @@ export function RunField({
           <b>{ARROWS[run.bearing.dir]}</b> strong return · {run.bearing.mass}u
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -323,6 +260,25 @@ interface RunControlsProps {
   onEnd: () => void;
   onSiphon: () => void;
   onScanLine: () => void;
+}
+
+function ControlButton({ children, disabled, warn, onClick, title }: {
+  children: React.ReactNode; disabled: boolean; warn?: boolean; onClick: () => void; title?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`flex-1 rounded border px-3 py-2 font-mono text-[11px] uppercase tracking-wider transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        warn
+          ? SURFACE.btnWarn
+          : `${ATOMS.borderLine} ${ATOMS.textDim} ${SURFACE.navLinkHover}`
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
 export function RunControls({
@@ -354,47 +310,39 @@ export function RunControls({
   const canScanLine = run.status === "active" && run.dir !== null;
 
   return (
-    <>
-      <div className="controls">
-        <button className="cbtn" disabled={!canCut} onClick={onExtract}>
+    <div className="w-full max-w-2xl">
+      <div className="flex flex-wrap gap-2">
+        <ControlButton disabled={!canCut} onClick={onExtract}>
           Extract {here && here.tier ? `(${here.units}u g${here.tier})` : ""}
-        </button>
-        <button className="cbtn ping" disabled={!canPing} onClick={onPing}>
-          {cd
-            ? `Sensors ${cd}`
-            : `Ping (${run.chassis.pingFuel.toFixed(1)} fuel)`}
-        </button>
+        </ControlButton>
+        <ControlButton disabled={!canPing} onClick={onPing}>
+          {cd ? `Sensors ${cd}` : `Ping (${run.chassis.pingFuel.toFixed(1)} fuel)`}
+        </ControlButton>
         {hasSiphon && (
-          <button
-            className="cbtn"
-            disabled={!canSiphon}
-            onClick={onSiphon}
-            title="Burns carried ore for fuel. Consumed on use."
-          >
+          <ControlButton disabled={!canSiphon} onClick={onSiphon} title="Burns carried ore for fuel. Consumed on use.">
             Siphon ore
-          </button>
+          </ControlButton>
         )}
         {hasScanner && (
-          <button
-            className="cbtn"
+          <ControlButton
             disabled={!canScanLine}
             onClick={onScanLine}
             title={`Scans the full ${run.dir ?? ""} line from here, stopped by the first hard seam. Consumed on use.`}
           >
             Scan {run.dir ?? ""} line
-          </button>
+          </ControlButton>
         )}
-        <button className="cbtn warn" disabled={!based} onClick={onEnd}>
+        <ControlButton disabled={!based} warn onClick={onEnd}>
           End run
-        </button>
+        </ControlButton>
       </div>
-      <div className="hint">
+      <div className={`mt-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
         {lastMsg ||
           (run.status === "active"
             ? "Arrows or WASD move · E extract · P ping · sensors find metal, never terrain · reach BASE to unload"
             : "")}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -405,32 +353,21 @@ export function RunLedger({ run }: { run: PublicRunView }) {
   }, [run.log.length]);
 
   const rows = run.log.slice(-160);
+  const tone = (k: string) => (k === "ex" ? ATOMS.textTeal : k === "bad" ? ATOMS.textDanger : k === "good" ? ATOMS.textOk : ATOMS.textDim);
+
   return (
-    <div className="ledger" ref={ref}>
+    <div ref={ref} className={`h-full overflow-y-auto rounded-lg ${SURFACE.card} p-2 font-mono text-[11px]`}>
       {rows.length === 0 ? (
-        <div>
-          <span className="n">—</span>
+        <div className={`flex gap-2 px-2 py-1 ${ATOMS.textDimmer}`}>
+          <span className="w-6 text-right">—</span>
           <span>no moves yet</span>
-          <span></span>
         </div>
       ) : (
-        rows.map((l) => (
-          <div key={l.n}>
-            <span className="n">{l.n}</span>
-            <span
-              className={
-                l.k === "ex"
-                  ? "ex"
-                  : l.k === "bad"
-                    ? "bad"
-                    : l.k === "good"
-                      ? "good"
-                      : ""
-              }
-            >
-              {l.t}
-            </span>
-            <span className="c">{l.c ? `-${l.c.toFixed(2)}` : ""}</span>
+        rows.map(l => (
+          <div key={l.n} className="flex gap-2 px-2 py-1">
+            <span className={`w-6 shrink-0 text-right ${ATOMS.textDimmer}`}>{l.n}</span>
+            <span className={`flex-1 ${tone(l.k)}`}>{l.t}</span>
+            <span className={`shrink-0 ${ATOMS.textDimmer}`}>{l.c ? `-${l.c.toFixed(2)}` : ""}</span>
           </div>
         ))
       )}

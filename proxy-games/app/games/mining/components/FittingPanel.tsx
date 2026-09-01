@@ -2,6 +2,8 @@
 
 import { CFG, fieldDims } from '@/lib/mining-engine';
 import type { Chassis, SurveyReport, SurveyTier } from '@/lib/mining-engine';
+import { StatsPanel } from '@/components/StatsPanel';
+import { ACCENTS, ATOMS, SURFACE, type Accent } from '@/lib/mining-theme';
 
 // Presets used to double as one-click Alloc pickers back when the chassis
 // was a per-run 10-slot allocation. Loadouts are now owned inventory
@@ -34,6 +36,28 @@ interface FittingPanelProps {
   onLaunch: () => void;
 }
 
+// Purchase chip — same visual language as FilterBar's option buttons, but
+// with per-option affordability (FilterBar's options don't support a
+// disabled state, since it's built for pure filtering, not spending money).
+function BuyChip({ label, sub, on, disabled, accent, onClick }: {
+  label: string; sub?: string; on: boolean; disabled: boolean; accent: Accent; onClick: () => void;
+}) {
+  const a = ACCENTS[accent];
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex-1 rounded border px-3 py-2 text-center font-mono text-xs uppercase tracking-wider transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        on ? `${a.border} ${a.tintBg} ${a.text}` : SURFACE.filterInactive
+      }`}
+    >
+      <div className="font-bold">{label}</div>
+      {sub && <div className={`mt-0.5 text-[10px] normal-case ${on ? 'opacity-80' : ATOMS.textDimmer}`}>{sub}</div>}
+    </button>
+  );
+}
+
 // Order matches the decisions a player actually makes, in order: the field
 // is assigned (server-side, before this component ever mounts), then buy a
 // survey or skip it, then buy a claim size, then check the chassis (fitted
@@ -46,77 +70,91 @@ export function FittingPanel({
   const claimCost = CFG.CLAIM_COST[claim] ?? 0;
   const funds = balance ? Number(balance) : 0;
 
+  const chassisRows = [
+    { label: 'Hold per trip', value: `${ch.hold}u` },
+    { label: 'Fuel capacity', value: ch.fuelCap.toFixed(0) },
+    { label: 'Dig a fresh cell', value: (1 / ch.speed + CFG.DIG_FUEL).toFixed(2) },
+    { label: 'Drive a tunnel', value: (1 / ch.speed * CFG.TUNNEL_MULT).toFixed(2) },
+    { label: 'Turn surcharge', value: (CFG.TURN_BASE / ch.movement).toFixed(2) },
+    { label: 'Fresh digs available', value: `~${Math.floor(ch.fuelCap / (1 / ch.speed + CFG.DIG_FUEL))}` },
+    { label: 'Sink', value: String(ch.sinkCap) },
+    { label: 'Ping range', value: `${ch.sensorRange.toFixed(1)} cells` },
+    { label: 'Fix accuracy', value: `±${ch.sensorBlur.toFixed(1)}` },
+    { label: 'Ping cost', value: `${ch.pingFuel.toFixed(1)} fuel` },
+    { label: 'Grade estimate', value: `±${(ch.analyser / 2).toFixed(1)} tiers` },
+  ];
+
   return (
-    <>
-      <div className="sect">
-        <div className="lbl">Survey</div>
-        <div className="claims">
+    <div className="space-y-6">
+      <div className={`rounded-lg ${SURFACE.card} p-4`}>
+        <div className={SURFACE.label}>Survey</div>
+        <div className="mt-2 flex gap-2">
           {SURVEY_TIERS.map(k => (
-            <button
+            <BuyChip
               key={k}
-              className={`claimbtn ${k === survey ? 'on' : ''}`}
+              label={CFG.SURVEY[k].label}
+              sub={CFG.SURVEY[k].cost ? `${CFG.SURVEY[k].cost}cr` : undefined}
+              on={k === survey}
               disabled={k !== survey && CFG.SURVEY[k].cost > funds}
+              accent="equipment"
               onClick={() => onRequestSurvey(k)}
-            >
-              {CFG.SURVEY[k].label}
-            </button>
+            />
           ))}
         </div>
-        <div className="ptip">
+        <p className={`mt-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
           {CFG.SURVEY[survey].note}
-          {CFG.SURVEY[survey].cost ? <> <b style={{ color: 'var(--text)' }}>{CFG.SURVEY[survey].cost}</b>.</> : null}
-        </div>
+          {CFG.SURVEY[survey].cost ? <> <b className={ATOMS.textPrimary}>{CFG.SURVEY[survey].cost}</b>.</> : null}
+        </p>
         <ReportPanel survey={survey} report={report} />
       </div>
 
-      <div className="sect">
-        <div className="lbl">Claim for this run · max {CFG.ENERGY_MAX}</div>
-        <div className="claims">
+      <div className={`rounded-lg ${SURFACE.card} p-4`}>
+        <div className={SURFACE.label}>Claim for this run · max {CFG.ENERGY_MAX}</div>
+        <div className="mt-2 flex gap-2">
           {CFG.CLAIM_OPTIONS.map(v => (
-            <button
+            <BuyChip
               key={v}
-              className={`claimbtn ${v === claim ? 'on' : ''}`}
+              label={`${v}E`}
+              sub={`${CFG.CLAIM_COST[v]}cr`}
+              on={v === claim}
               disabled={v !== claim && CFG.CLAIM_COST[v] > funds}
+              accent="expansion"
               onClick={() => onClaimChange(v)}
-            >
-              {v}E
-            </button>
+            />
           ))}
         </div>
-        <div className="ptip">Claiming this size costs <b style={{ color: 'var(--text)' }}>{claimCost}</b>, deducted from this run&rsquo;s net at the end. Freely changeable until you launch.</div>
-        <div className="derived" style={{ marginTop: 8 }}>
-          <div><span>Target</span><b>{claim}u of ore</b></div>
-          <div><span>Claim cost</span><b>{claimCost}</b></div>
-          <div><span>Hauls to carry it</span><b>~{Math.ceil(claim / ch.hold)}</b></div>
-          <div><span>Site size</span><b>{dims.W} × {dims.H}</b></div>
+        <p className={`mt-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
+          Claiming this size costs <b className={ATOMS.textPrimary}>{claimCost}</b>, deducted from this run&rsquo;s net at the end. Freely changeable until you launch.
+        </p>
+        <div className={`mt-3 space-y-1 border-t ${ATOMS.borderInset} pt-2 text-[11px]`}>
+          <div className="flex justify-between"><span className={ATOMS.textDim}>Target</span><b className={ATOMS.textPrimary}>{claim}u of ore</b></div>
+          <div className="flex justify-between"><span className={ATOMS.textDim}>Claim cost</span><b className={ATOMS.textPrimary}>{claimCost}</b></div>
+          <div className="flex justify-between"><span className={ATOMS.textDim}>Hauls to carry it</span><b className={ATOMS.textPrimary}>~{Math.ceil(claim / ch.hold)}</b></div>
+          <div className="flex justify-between"><span className={ATOMS.textDim}>Site size</span><b className={ATOMS.textPrimary}>{dims.W} × {dims.H}</b></div>
         </div>
       </div>
 
-      <div className="sect build-section">
-        <div className="lbl">Chassis</div>
-        <div className="ptip">
-          Whatever&rsquo;s equipped on your <a href="/games/mining/build">build screen</a> right now. Fit changes there carry into your next launch.
-        </div>
-
-        <div className="derived">
-          <div><span>Hold per trip</span><b>{ch.hold}u</b></div>
-          <div><span>Fuel capacity</span><b>{ch.fuelCap.toFixed(0)}</b></div>
-          <div><span>Dig a fresh cell</span><b>{(1 / ch.speed + CFG.DIG_FUEL).toFixed(2)}</b></div>
-          <div><span>Drive a tunnel</span><b>{(1 / ch.speed * CFG.TUNNEL_MULT).toFixed(2)}</b></div>
-          <div><span>Turn surcharge</span><b>{(CFG.TURN_BASE / ch.movement).toFixed(2)}</b></div>
-          <div><span>Fresh digs available</span><b>~{Math.floor(ch.fuelCap / (1 / ch.speed + CFG.DIG_FUEL))}</b></div>
-          <div><span>Sink</span><b>{ch.sinkCap}</b></div>
-          <div><span>Ping range</span><b>{ch.sensorRange.toFixed(1)} cells</b></div>
-          <div><span>Fix accuracy</span><b>±{ch.sensorBlur.toFixed(1)}</b></div>
-          <div><span>Ping cost</span><b>{ch.pingFuel.toFixed(1)} fuel</b></div>
-          <div><span>Grade estimate</span><b>±{(ch.analyser / 2).toFixed(1)} tiers</b></div>
-        </div>
-
-        <a className="hbtn" href="/games/mining/build" style={{ display: 'inline-block', marginTop: 10, textDecoration: 'none', textAlign: 'center' }}>Edit loadout</a>
+      <div>
+        <StatsPanel title="Chassis" rows={chassisRows} />
+        <p className={`mt-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
+          Whatever&rsquo;s equipped on your <a href="/games/mining/build" className={ATOMS.textTeal}>build screen</a> right now. Fit changes there carry into your next launch.
+        </p>
+        <a
+          href="/games/mining/build"
+          className={`mt-2 block rounded border ${ATOMS.borderLine} px-3 py-1.5 text-center font-mono text-[10px] uppercase tracking-[.12em] ${ATOMS.textDim} transition ${SURFACE.navLinkHover}`}
+        >
+          Edit loadout
+        </a>
       </div>
 
-      <button className="go" onClick={onLaunch} disabled={!runId}>Launch run</button>
-    </>
+      <button
+        onClick={onLaunch}
+        disabled={!runId}
+        className={`w-full rounded px-5 py-3 font-mono text-xs font-bold uppercase tracking-[.14em] transition ${SURFACE.btnPrimary} ${SURFACE.btnDisabled}`}
+      >
+        Launch run
+      </button>
+    </div>
   );
 }
 
@@ -126,7 +164,11 @@ export function FittingPanel({
 // "selected", it's bought.
 function ReportPanel({ survey, report }: { survey: SurveyTier; report: SurveyReport | null }) {
   if (survey === 'none' || !report) {
-    return <div className="report none">No survey bought. You will not know what this face holds until you are standing in it.</div>;
+    return (
+      <p className={`mt-3 rounded border ${ATOMS.borderInset} p-2 text-[11px] italic leading-snug ${ATOMS.textDim}`}>
+        No survey bought. You will not know what this face holds until you are standing in it.
+      </p>
+    );
   }
   const rep = report;
 
@@ -139,9 +181,9 @@ function ReportPanel({ survey, report }: { survey: SurveyTier; report: SurveyRep
     : rep.depth < 0.80 ? 'mostly far'
     : 'all far out';
   const richShare = rep.mass ? rep.rich / rep.mass : 0;
-  const verdict: [string, string] = rep.mass < 70 ? ['Thin face', 'var(--danger)']
-    : rep.mass < 105 ? ['Workable', 'var(--fuel)']
-    : ['Rich face', 'var(--ok)'];
+  const verdict: [string, string] = rep.mass < 70 ? ['Thin face', ATOMS.textDanger]
+    : rep.mass < 105 ? ['Workable', ATOMS.textAmber]
+    : ['Rich face', ATOMS.textOk];
   const advise = (rep.mass < 70
     ? 'Claim small. There is not enough here to carry a big commitment.'
     : rep.mass < 105
@@ -154,18 +196,18 @@ function ReportPanel({ survey, report }: { survey: SurveyTier; report: SurveyRep
         : '');
 
   return (
-    <div className="report">
-      <div className="rhead" style={{ color: verdict[1] }}>{verdict[0]}</div>
-      <div className="derived">
-        <div><span>Pockets</span><b>{f ? `${Math.max(1, rep.pockets - 1)}–${rep.pockets + 1}` : rep.pockets}</b></div>
-        <div><span>Total ore</span><b>{band(rep.mass, 'u')}</b></div>
-        <div><span>Ore sits</span><b>{depth}</b></div>
-        <div><span>Grade 3+ share</span><b>{f ? (richShare < 0.2 ? 'low' : richShare < 0.4 ? 'some' : 'high') : Math.round(richShare * 100) + '%'}</b></div>
+    <div className={`mt-3 rounded border ${ATOMS.borderInset} p-3`}>
+      <div className={`font-mono text-xs font-bold uppercase tracking-wider ${verdict[1]}`}>{verdict[0]}</div>
+      <div className="mt-2 space-y-1 text-[11px]">
+        <div className="flex justify-between"><span className={ATOMS.textDim}>Pockets</span><b className={ATOMS.textPrimary}>{f ? `${Math.max(1, rep.pockets - 1)}–${rep.pockets + 1}` : rep.pockets}</b></div>
+        <div className="flex justify-between"><span className={ATOMS.textDim}>Total ore</span><b className={ATOMS.textPrimary}>{band(rep.mass, 'u')}</b></div>
+        <div className="flex justify-between"><span className={ATOMS.textDim}>Ore sits</span><b className={ATOMS.textPrimary}>{depth}</b></div>
+        <div className="flex justify-between"><span className={ATOMS.textDim}>Grade 3+ share</span><b className={ATOMS.textPrimary}>{f ? (richShare < 0.2 ? 'low' : richShare < 0.4 ? 'some' : 'high') : Math.round(richShare * 100) + '%'}</b></div>
         {rep.byGrade && (
-          <div><span>By grade</span><b>{rep.byGrade.slice(1).map((v, i) => v ? `g${i + 1}:${v}` : '').filter(Boolean).join('  ')}</b></div>
+          <div className="flex justify-between"><span className={ATOMS.textDim}>By grade</span><b className={ATOMS.textPrimary}>{rep.byGrade.slice(1).map((v, i) => v ? `g${i + 1}:${v}` : '').filter(Boolean).join('  ')}</b></div>
         )}
       </div>
-      <div className="radvise">{advise}</div>
+      <p className={`mt-2 text-[11px] leading-snug ${ATOMS.textDim}`}>{advise}</p>
     </div>
   );
 }
