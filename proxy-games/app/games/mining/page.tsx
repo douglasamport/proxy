@@ -100,6 +100,7 @@ export default function MiningPage() {
   const [view, setView] = useState<PublicRunView | null>(null);
   const [lastMsg, setLastMsg] = useState("");
   const [results, setResults] = useState<EndResult | null>(null);
+  const [settling, setSettling] = useState(false);
   const busyRef = useRef(false);
   const endingRef = useRef(false);
 
@@ -305,8 +306,27 @@ export default function MiningPage() {
       return;
     }
     setResults(r.data);
-    router.refresh(); // balance changed — refresh the header's server-rendered figure
-  }, [runId, router]);
+  }, [runId]);
+
+  // The player's choice, made after seeing ResultsModal's numbers — see
+  // POST /api/runs/[id]/settle in lib/mining-run-store.ts. Only this call
+  // actually moves money/ore; doEnd() above just previews the score.
+  const doSettle = useCallback(
+    async (choice: "credits" | "ore") => {
+      if (!runId || settling) return;
+      setSettling(true);
+      const r = await postJSON(`/api/runs/${runId}/settle`, { choice });
+      setSettling(false);
+      if (!r.ok) {
+        setLastMsg("Could not settle run — try again.");
+        return;
+      }
+      setResults(null);
+      router.refresh(); // balance/inventory changed — refresh server-rendered figures
+      assignField();
+    },
+    [runId, settling, router, assignField],
+  );
 
   // Auto-end: applyMove/applyExtract/applyPing can themselves terminate a
   // run (fuel dry -> stranded, fatal hazard -> wrecked), not just the
@@ -440,7 +460,8 @@ export default function MiningPage() {
           energyStart={results.energyStart}
           you={results.you}
           ai={results.ai}
-          onAgain={handleRefit}
+          settling={settling}
+          onSettle={doSettle}
         />
       )}
     </div>

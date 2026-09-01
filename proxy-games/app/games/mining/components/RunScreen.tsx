@@ -132,10 +132,10 @@ export function RunField({
       if (isBase) cls += " base";
       else if (!known) cls += " unknown";
       else if (c.seam) cls += " seam";
-      else if (c.tier > 0) cls += ` ore t${c.tier}`;
+      else if (c.grade > 0) cls += ` ore t${c.grade}`;
       else if (c.cavern) cls += " cavern";
       else if (c.dug) cls += " tunnel";
-      if (known && c.dug && c.tier > 0) cls += " cut";
+      if (known && c.dug && c.grade > 0) cls += " cut";
       // Caverns are dug:true the instant they're discovered (free ground),
       // so this naturally never fires for them — exactly the exception asked
       // for. Seams are excluded explicitly: they're permanent obstacles,
@@ -156,7 +156,7 @@ export function RunField({
           ? ""
           : c.seam
             ? "▨"
-            : c.tier > 0
+            : c.grade > 0
               ? String(c.units)
               : c.cavern
                 ? "○"
@@ -292,10 +292,10 @@ export function RunControls({
   onScanLine,
 }: RunControlsProps) {
   const here = run.status === "active" ? run.cells[idx(run.x, run.y)] : null;
-  // A fully-extracted cell always has tier reset to 0 in the same step it's
-  // marked spent (see applyExtract in the engine), so tier > 0 alone is
+  // A fully-extracted cell always has grade reset to 0 in the same step it's
+  // marked spent (see applyExtract in the engine), so grade > 0 alone is
   // already a complete "can still cut here" check.
-  const canCut = !!here && here.tier > 0 && run.status === "active";
+  const canCut = !!here && here.grade > 0 && run.status === "active";
   const based = run.status === "active" && atBase(run);
   const cd = Math.max(0, run.pingReady - run.step);
   const canPing =
@@ -313,7 +313,7 @@ export function RunControls({
     <div className="w-full max-w-2xl">
       <div className="flex flex-wrap gap-2">
         <ControlButton disabled={!canCut} onClick={onExtract}>
-          Extract {here && here.tier ? `(${here.units}u g${here.tier})` : ""}
+          Extract {here && here.grade ? `(${here.units}u g${here.grade})` : ""}
         </ControlButton>
         <ControlButton disabled={!canPing} onClick={onPing}>
           {cd ? `Sensors ${cd}` : `Ping (${run.chassis.pingFuel.toFixed(1)} fuel)`}

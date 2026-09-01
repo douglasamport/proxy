@@ -4,6 +4,7 @@ import {
   CFG,
   atBase,
   heldUnits,
+  oreGradeValue,
   returnCost,
   runAI,
   score,
@@ -15,6 +16,7 @@ import type {
   DirKey,
   LogEntry,
   OreLoad,
+  OreTypeKey,
   RunState,
   RunStatus,
   ScoreResult,
@@ -96,7 +98,7 @@ export interface PublicCell {
   x: number;
   y: number;
   known: boolean;
-  tier: number;
+  grade: number;
   units: number;
   hazard: number;
   gas: boolean;
@@ -116,7 +118,7 @@ function redactCells(cells: Cell[]): PublicCell[] {
           x: c.x,
           y: c.y,
           known: true,
-          tier: c.tier,
+          grade: c.grade,
           units: c.units,
           hazard: c.hazard,
           gas: c.gas,
@@ -128,7 +130,7 @@ function redactCells(cells: Cell[]): PublicCell[] {
           x: c.x,
           y: c.y,
           known: false,
-          tier: 0,
+          grade: 0,
           units: 0,
           hazard: 0,
           gas: false,
@@ -219,38 +221,98 @@ export async function applyActiveAction(
   return { kind: "ok", view: toPublicView(id, r.s), err: r.err };
 }
 
+// "collect credits" is the original behaviour: banked ore's cash value is
+// credited outright. "stockpile ore" credits nothing for revenue — the run's
+// costs (fuel, repair, launch, claim) are still charged, since those were
+// spent regardless of what happens to the ore — but the banked ore itself
+// goes into player_inventory instead. Per-run, not per-ore-type (see Stage 2
+// of build-spec-ore-progression.md).
+export type SettleChoice = "credits" | "ore";
+
 // Scores both sides, writes the run + a balance_transactions ledger row +
-// the players.balance update atomically, and deletes the in_progress_runs
-// row. `state.status` must already be terminal — this doesn't call
-// applyEnd(), it settles a run that has already ended one way or another.
-// Shared by POST /api/runs/[id]/end (the player explicitly ending, or the
-// client noticing an auto-terminated run) and settleAbandonedRuns() below
-// (a run that ended and was simply never reported).
+// the players.balance/player_inventory update atomically, and deletes the
+// in_progress_runs row. `state.status` must already be terminal — this
+// doesn't call applyEnd(), it settles a run that has already ended one way
+// or another. Shared by POST /api/runs/[id]/settle (the player explicitly
+// choosing, once they've seen ResultsModal's numbers) and
+// settleAbandonedRuns() below (a run that ended and was simply never
+// reported — always settled as "credits", since there's no one left to ask).
 export async function settleRun(
   row: RunRow,
   state: RunState,
+  choice: SettleChoice = "credits",
 ): Promise<{ you: ScoreResult; ai: ScoreResult }> {
   const you = score(state);
   const ai = score(runAI(state.seed, state.chassis, state.energyStart));
 
   const runId = randomUUID();
-  await sql.transaction([
+  const statements = [
     sql`
       insert into runs (id, player_id, game, seed, config, status, units, grade, net, move_log)
       values (
         ${runId}, ${row.player_id}, ${row.game}, ${state.seed},
-        ${JSON.stringify({ loadout: row.loadout, claim: state.energyStart, survey: state.survey })},
+        ${JSON.stringify({ loadout: row.loadout, claim: state.energyStart, survey: state.survey, settleChoice: choice })},
         ${state.status}, ${you.units}, ${you.grade}, ${you.net},
         ${JSON.stringify(state.log)}
       )
     `,
-    sql`
-      insert into balance_transactions (player_id, game, reason, delta, run_id)
-      values (${row.player_id}, ${row.game}, 'run_net', ${you.net}, ${runId})
-    `,
-    sql`update players set balance = balance + ${you.net} where id = ${row.player_id}`,
-  ]);
+  ];
 
+  if (choice === "ore") {
+    // Grouped by ore type and valued the same way "collect credits" values
+    // it — units * grade value * ORE_PRICE, see score() — then converted
+    // into a flat-priced quantity via that ore's item_catalog.sell_value.
+    // Dividing by the same price a later sale would use is what makes
+    // stockpile-then-sell worth exactly what collecting credits now would
+    // have paid (see Stage 3 of build-spec-ore-progression.md: "cash-in
+    // price and sell price are identical").
+    const revenueByType = new Map<OreTypeKey, number>();
+    for (const load of state.banked) {
+      const revenue =
+        load.units * oreGradeValue(load.oreType, load.grade) * CFG.ORE_PRICE;
+      revenueByType.set(
+        load.oreType,
+        (revenueByType.get(load.oreType) ?? 0) + revenue,
+      );
+    }
+    const oreTypes = Array.from(revenueByType.keys());
+    const priceRows = oreTypes.length
+      ? await sql`select item_key, sell_value from item_catalog where item_key = any(${oreTypes})`
+      : [];
+    const sellPriceByType = new Map(
+      priceRows.map((r) => [r.item_key as string, Number(r.sell_value)]),
+    );
+    for (const [oreType, revenue] of revenueByType) {
+      const sellPrice = sellPriceByType.get(oreType);
+      if (!sellPrice) continue; // not in the catalog / no price set — nothing to stockpile
+      const quantity = Math.round(revenue / sellPrice);
+      if (quantity <= 0) continue;
+      statements.push(sql`
+        insert into player_inventory (player_id, item_key, owned_quantity)
+        values (${row.player_id}, ${oreType}, ${quantity})
+        on conflict (player_id, item_key)
+        do update set owned_quantity = player_inventory.owned_quantity + excluded.owned_quantity, updated_at = now()
+      `);
+    }
+    const costOnly = -you.cost;
+    statements.push(
+      sql`
+        insert into balance_transactions (player_id, game, reason, delta, run_id)
+        values (${row.player_id}, ${row.game}, 'run_cost', ${costOnly}, ${runId})
+      `,
+      sql`update players set balance = balance + ${costOnly} where id = ${row.player_id}`,
+    );
+  } else {
+    statements.push(
+      sql`
+        insert into balance_transactions (player_id, game, reason, delta, run_id)
+        values (${row.player_id}, ${row.game}, 'run_net', ${you.net}, ${runId})
+      `,
+      sql`update players set balance = balance + ${you.net} where id = ${row.player_id}`,
+    );
+  }
+
+  await sql.transaction(statements);
   await sql`delete from in_progress_runs where id = ${row.id}`;
 
   return { you, ai };

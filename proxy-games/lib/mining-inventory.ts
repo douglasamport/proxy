@@ -90,6 +90,35 @@ export type SetEquippedResult = "ok" | "not_owned" | "over_cap";
 // (+expansions) slots.
 export const EQUIPMENT_CATEGORY = "equipment";
 
+// Mined ore, stockpiled at run-end instead of collected as credits (see
+// settleRun in mining-run-store.ts). Never equippable, unlimited quantity —
+// same non-equip shape as EXPANSION_ITEM_KEY below, just one row per ore
+// type instead of a single row.
+export const ORE_CATEGORY = "ore";
+
+// One-time per-mineral unlocks (see db/013_mineral_licences.sql) — same
+// one-time-gate shape as EQUIPMENT_SLOT_KEY below, just twelve rows instead
+// of one. Bought via the ordinary purchaseItem() flow; the store UI (not
+// a dedicated endpoint) is what stops a player from buying a second one.
+export const LICENCE_CATEGORY = "licence";
+
+// Every mineral eligible for field generation for this player — copper is
+// always included, since it's unlocked from the start and never gated by a
+// licence (see Stage 5 of build-spec-ore-progression.md). Nothing consumes
+// this yet; it's the query side of "the mechanism for unlocking new ore,"
+// ready for Stage 6's field generation to read.
+export async function loadUnlockedOreTypes(playerId: string): Promise<string[]> {
+  const rows = await sql`
+    select pi.item_key from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    where pi.player_id = ${playerId} and ic.category = ${LICENCE_CATEGORY} and pi.owned_quantity > 0
+  `;
+  return [
+    "copper",
+    ...rows.map((r) => (r.item_key as string).replace(/_licence$/, "")),
+  ];
+}
+
 // Equipping/unequipping never touches the balance — the item's already
 // paid for, this only decides what's currently installed. Not wrapped in
 // the same race-proof machinery as purchaseItem: this is a player editing

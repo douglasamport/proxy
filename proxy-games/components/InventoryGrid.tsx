@@ -54,6 +54,7 @@ export function InventoryGrid({ items }: { items: OwnedItem[] }) {
           // the unlock item's locked/unlocked toggle. See the matching
           // comment in app/games/mining/store/page.tsx.
           const isEquipmentSlot = item.category === "equipment_slot";
+          const isOre = item.category === "ore";
 
           return (
             <InventoryCard
@@ -66,6 +67,7 @@ export function InventoryGrid({ items }: { items: OwnedItem[] }) {
               equippedQuantity={item.equipped_quantity}
               isExpansion={isExpansion}
               isEquipmentSlot={isEquipmentSlot}
+              isOre={isOre}
               accent={accentForCategory(item.category)}
             />
           );

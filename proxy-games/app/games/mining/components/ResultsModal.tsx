@@ -59,20 +59,24 @@ interface ResultsModalProps {
   energyStart: number;
   you: ScoreResult;
   ai: ScoreResult;
-  onAgain: () => void;
+  settling: boolean;
+  onSettle: (choice: "credits" | "ore") => void;
 }
 
 // Everything here is what the server computed and returned from
 // POST /api/runs/[id]/end — this component doesn't run score() or runAI()
 // itself, since both need the seed, which the client only ever learns once
-// the run is already over (see lib/mining-run-store.ts).
+// the run is already over (see lib/mining-run-store.ts). The run itself
+// isn't settled yet at this point — that happens once the player picks one
+// of the two buttons below, via POST /api/runs/[id]/settle.
 export function ResultsModal({
   status,
   seed,
   energyStart,
   you,
   ai,
-  onAgain,
+  settling,
+  onSettle,
 }: ResultsModalProps) {
   const [vtxt, vcol] = VERDICT[status] || ["Run over", ATOMS.textDim];
   const netUp = you.net >= 0;
@@ -142,14 +146,26 @@ export function ResultsModal({
         </table>
       </details>
 
-      <div className={`mt-4 text-[11px] ${ATOMS.textOk}`}>Run saved to your history.</div>
-      <button
-        onClick={onAgain}
-        autoFocus
-        className={`mt-3 w-full rounded px-5 py-3 font-mono text-xs font-bold uppercase tracking-[.14em] transition ${SURFACE.btnPrimary}`}
-      >
-        Refit &amp; run again
-      </button>
+      <div className={`mt-4 text-[11px] ${ATOMS.textDim}`}>
+        Keep the credits, or stockpile the ore itself for the refinery later — your call, per run.
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => onSettle("credits")}
+          disabled={settling}
+          autoFocus
+          className={`rounded px-4 py-3 font-mono text-xs font-bold uppercase tracking-[.1em] transition disabled:opacity-50 ${SURFACE.btnPrimary}`}
+        >
+          Collect credits
+        </button>
+        <button
+          onClick={() => onSettle("ore")}
+          disabled={settling}
+          className={`rounded border ${ATOMS.borderInset} px-4 py-3 font-mono text-xs font-bold uppercase tracking-[.1em] transition hover:bg-white/5 disabled:opacity-50 ${ATOMS.textPrimary}`}
+        >
+          Stockpile ore
+        </button>
+      </div>
     </Modal>
   );
 }

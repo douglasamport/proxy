@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CFG, chassisFromEffects } from '@/lib/mining-engine';
+import { CFG, chassisFromEffects, fuelMult } from '@/lib/mining-engine';
 import type { Chassis, StatKey } from '@/lib/mining-engine';
 import type { CatalogItem, InventoryRow } from '@/lib/mining-inventory';
 import { categoryIcon, FullBuildIcon } from '../icons';
@@ -153,13 +153,14 @@ export default function BuildPage() {
     );
   }
 
+  const mult = fuelMult(chassis);
   const statRows = [
     { label: 'Hold per trip', value: `${chassis.hold}u` },
     { label: 'Fuel capacity', value: chassis.fuelCap.toFixed(0) },
-    { label: 'Dig a fresh cell', value: (1 / chassis.speed + CFG.DIG_FUEL).toFixed(2) },
-    { label: 'Drive a tunnel', value: (1 / chassis.speed * CFG.TUNNEL_MULT).toFixed(2) },
-    { label: 'Turn surcharge', value: (CFG.TURN_BASE / chassis.movement).toFixed(2) },
-    { label: 'Fresh digs available', value: `~${Math.floor(chassis.fuelCap / (1 / chassis.speed + CFG.DIG_FUEL))}` },
+    { label: 'Dig a fresh cell', value: ((1 / chassis.speed + CFG.DIG_FUEL) * mult).toFixed(2) },
+    { label: 'Drive a tunnel', value: (1 / chassis.speed * CFG.TUNNEL_MULT * mult).toFixed(2) },
+    { label: 'Turn surcharge', value: (CFG.TURN_BASE / chassis.movement * mult).toFixed(2) },
+    { label: 'Fresh digs available', value: `~${Math.floor(chassis.fuelCap / ((1 / chassis.speed + CFG.DIG_FUEL) * mult))}` },
     { label: 'Sink', value: String(chassis.sinkCap) },
     { label: 'Ping range', value: `${chassis.sensorRange.toFixed(1)} cells` },
     { label: 'Fix accuracy', value: `±${chassis.sensorBlur.toFixed(1)}` },

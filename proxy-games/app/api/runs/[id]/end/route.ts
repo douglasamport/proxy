@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { currentPlayer } from '@/lib/auth';
-import { loadActiveRun, saveActiveState, settleRun, toPublicView } from '@/lib/mining-run-store';
-import { applyEnd } from '@/lib/mining-engine';
+import { loadActiveRun, saveActiveState, toPublicView } from '@/lib/mining-run-store';
+import { applyEnd, runAI, score } from '@/lib/mining-engine';
 
-// POST { force? } -> { view, you, ai, seed } and settles the run.
-//
-// Runs applyEnd() server-side (same as every other action), then — only if
-// the run actually ended — hands off to settleRun() (shared with
-// settleAbandonedRuns(), see lib/mining-run-store.ts) to score both sides,
-// write the ledger, and delete the row. The seed is included in the
-// response for the first time here, since the run is now over and safe to
-// disclose (see db/003_in_progress_runs.sql).
+// POST { force? } -> { view, you, ai, seed } — ends the run and returns a
+// score preview for both sides, but does NOT settle it. Settlement (credit
+// vs stockpile — see Stage 2 of build-spec-ore-progression.md) happens via
+// a separate POST /api/runs/[id]/settle once the player has seen these
+// numbers in ResultsModal and picked. The row stays in in_progress_runs
+// (terminal state.status, still phase 'active') until then — see settleRun
+// in lib/mining-run-store.ts, and settleAbandonedRuns() there for the
+// safety net if the player never comes back to choose. The seed is included
+// in the response for the first time here, since the run is now over and
+// safe to disclose (see db/003_in_progress_runs.sql).
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const player = await currentPlayer({ touch: false });
   if (!player) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
@@ -34,7 +36,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const saved = await saveActiveState(id, expectedStep, r.s);
   if (!saved) return NextResponse.json({ error: 'conflicting request, retry' }, { status: 409 });
 
-  const { you, ai } = await settleRun(loaded.row, r.s);
+  const you = score(r.s);
+  const ai = score(runAI(r.s.seed, r.s.chassis, r.s.energyStart));
 
   return NextResponse.json({
     view: toPublicView(id, r.s),

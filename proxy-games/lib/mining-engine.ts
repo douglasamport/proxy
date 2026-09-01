@@ -30,6 +30,7 @@ export interface Chassis {
   sensorBlur: number;
   pingFuel: number;
   analyser: number;
+  fuelEfficiency: number;
 }
 
 // The stats an equipped item can affect. One item can touch several at
@@ -37,21 +38,58 @@ export interface Chassis {
 // which is why item_catalog.effects is a map, not a single number.
 export type StatKey =
   | "fuelCap" | "hold" | "sinkCap" | "speed" | "movement"
-  | "sensorRange" | "sensorBlur" | "pingFuel" | "analyser";
+  | "sensorRange" | "sensorBlur" | "pingFuel" | "analyser"
+  | "fuelEfficiency";
 
 export interface Point {
   x: number;
   y: number;
 }
 
+// Which mineral, not how good this particular pocket of it is — that's
+// `grade` below. See build-spec-ore-progression.md, Stage 1.
+export type OreTypeKey = "copper";
+
+export interface OreType {
+  key: OreTypeKey;
+  label: string;
+  tier: number; // rarity class 1-4: Common / Precious / Semiconductor / Rare-earth
+  grade_values: number[]; // indexed by Cell.grade (1-4); index 0 unused
+  value_multiplier: number;
+  depth_gate: number; // normalised base distance at which this ore becomes eligible
+  adds_map_size: number;
+}
+
+// Only copper is unlocked to start. grade_values match the engine's
+// pre-existing GRADE_VALUE curve exactly, not the taxonomy doc's 1/2/8/20
+// spread — that spread is a target for a later balance pass, and Stage 1 is
+// data-only: identical gameplay is the acceptance bar.
+export const ORE_TYPES: Record<OreTypeKey, OreType> = {
+  copper: {
+    key: "copper",
+    label: "Copper",
+    tier: 1,
+    grade_values: [0, 1, 3, 8, 20],
+    value_multiplier: 1,
+    depth_gate: 0,
+    adds_map_size: 0,
+  },
+};
+
+export function oreGradeValue(oreType: OreTypeKey, grade: number): number {
+  const t = ORE_TYPES[oreType];
+  return t.grade_values[grade] * t.value_multiplier;
+}
+
 export interface Pocket extends Point {
-  tier: number;
+  grade: number;
 }
 
 export interface Cell {
   x: number;
   y: number;
-  tier: number;
+  grade: number;
+  oreType: OreTypeKey;
   units: number;
   hazard: number;
   gas: boolean;
@@ -60,11 +98,12 @@ export interface Cell {
   spent: boolean;
   dug: boolean;
   known: boolean;
-  tier_kept?: number;
+  grade_kept?: number;
 }
 
 export interface OreLoad {
-  tier: number;
+  oreType: OreTypeKey;
+  grade: number;
   units: number;
 }
 
@@ -77,7 +116,8 @@ export interface Contact {
   blur: number;
   fixes: number;
   mass: number;
-  tier: number;
+  oreType: OreTypeKey;
+  grade: number;
   lo?: number;
   hi?: number;
   survey?: boolean;
@@ -94,7 +134,8 @@ export interface OreCluster {
   cx: number;
   cy: number;
   mass: number;
-  tier: number;
+  oreType: OreTypeKey;
+  grade: number;
   cells: number;
 }
 
@@ -336,6 +377,7 @@ export function chassisFromEffects(effects: Partial<Record<StatKey, number>>): C
     sensorBlur: Math.max(0.35, CFG.SENSOR_BLUR_BASE + e("sensorBlur")),
     pingFuel: Math.max(1.2, CFG.PING_FUEL_BASE + e("pingFuel")),
     analyser: Math.max(0.6, CFG.ANALYSER_BASE + e("analyser")),
+    fuelEfficiency: e("fuelEfficiency"),
   };
 }
 
@@ -390,9 +432,9 @@ export function generateField(seed: number): {
   ).map((p) => {
     const d = Math.hypot(p.x - base.x, p.y - base.y) / maxD;
     const roll = rng() + d * 0.5;
-    let tier = roll < 0.4 ? 1 : roll < 0.7 ? 2 : roll < 0.92 ? 3 : 4;
-    while (tier > 1 && d < CFG.TIER_GATE[tier]) tier--;
-    return { ...p, tier };
+    let grade = roll < 0.4 ? 1 : roll < 0.7 ? 2 : roll < 0.92 ? 3 : 4;
+    while (grade > 1 && d < CFG.TIER_GATE[grade]) grade--;
+    return { ...p, grade };
   });
   const seams = scatter(rng, per(CFG.SEAM_CLUSTERS_PER_100), base, 2.2);
   const gas = scatter(rng, per(CFG.GAS_PER_100), base, 3.0);
@@ -424,7 +466,8 @@ export function generateField(seed: number): {
       const c: Cell = {
         x,
         y,
-        tier: 0,
+        grade: 0,
+        oreType: "copper", // only ore type unlocked until Stage 5 sells licences
         units: 0,
         hazard: 0,
         gas: false,
@@ -460,15 +503,15 @@ export function generateField(seed: number): {
           pk &&
           rng() < CFG.DEPOSIT_DENSITY * (1 - (pk.d / CFG.DEPOSIT_SPREAD) * 0.6)
         ) {
-          c.tier = Math.max(
+          c.grade = Math.max(
             1,
-            pk.p.tier - (pk.d > CFG.DEPOSIT_SPREAD * 0.65 ? 1 : 0),
+            pk.p.grade - (pk.d > CFG.DEPOSIT_SPREAD * 0.65 ? 1 : 0),
           );
           c.units =
             CFG.ORE_UNITS_MIN +
             Math.floor(rng() * (CFG.ORE_UNITS_MAX - CFG.ORE_UNITS_MIN + 1));
         } else if (rng() < CFG.STRAY_ORE) {
-          c.tier = 1;
+          c.grade = 1;
           c.units = 1 + Math.floor(rng() * 3);
         }
       }
@@ -512,9 +555,9 @@ export function surveyReport(
   for (const g of groups) {
     const d = Math.hypot(g.cx - f.base.x, g.cy - f.base.y) / maxD;
     mass += g.mass;
-    byGrade[g.tier] += g.mass;
+    byGrade[g.grade] += g.mass;
     if (d > 0.45) far += g.mass; // beyond comfortable reach
-    if (d > 0.45 && g.tier >= 3) richFar += g.mass; // and worth the trip
+    if (d > 0.45 && g.grade >= 3) richFar += g.mass; // and worth the trip
   }
   const detail = tier === "full";
   return {
@@ -560,7 +603,8 @@ export function applySurvey(
       blur: spec.blur,
       fixes: 1,
       mass: g.mass,
-      tier: g.tier,
+      oreType: g.oreType,
+      grade: g.grade,
       lo: 1,
       hi: 4,
       survey: true, // grade unknown: the full range
@@ -596,7 +640,7 @@ export function createRun(
     fuel: chassis.fuelCap,
     sink: chassis.sinkCap,
     energy: claim,
-    carrying: [], // {tier, units}
+    carrying: [], // {oreType, grade, units}
     banked: [],
     fuelUsed: 0,
     sinkLost: 0,
@@ -629,8 +673,21 @@ const clone = (s: RunState): RunState => ({
 
 export const heldUnits = (s: RunState) =>
   s.carrying.reduce((n, o) => n + o.units, 0);
-export const moveCost = (s: RunState) => 1 / s.chassis.speed;
-export const turnCost = (s: RunState) => CFG.TURN_BASE / s.chassis.movement;
+// A per-fuel-tier discount (see Stage 4 of build-spec-ore-progression.md),
+// summed additively across every equipped item like every other stat, then
+// applied here as a single multiplier everywhere fuel is spent — movement,
+// digging, and extraction, but deliberately NOT ping (pingFuel already has
+// its own dedicated sensor-gear stat). Floored well above zero: without a
+// floor, stacking enough efficiency gear would make fuel free or negative.
+export const fuelMult = (chassis: Chassis) =>
+  Math.max(0.1, 1 - chassis.fuelEfficiency);
+export const moveCost = (s: RunState) =>
+  (1 / s.chassis.speed) * fuelMult(s.chassis);
+export const turnCost = (s: RunState) =>
+  (CFG.TURN_BASE / s.chassis.movement) * fuelMult(s.chassis);
+export const digFuel = (s: RunState) => CFG.DIG_FUEL * fuelMult(s.chassis);
+export const extractFuel = (s: RunState) =>
+  CFG.EXTRACT_FUEL * fuelMult(s.chassis);
 export const cellAt = (s: RunState, x: number, y: number) => s.cells[idx(x, y)];
 export const atBase = (s: RunState) => s.x === s.base.x && s.y === s.base.y;
 
@@ -643,7 +700,7 @@ function stepCost(
 ): number {
   const c = cellAt(s, nx, ny);
   if (c.seam) return Infinity;
-  let cost = c.dug ? moveCost(s) * CFG.TUNNEL_MULT : moveCost(s) + CFG.DIG_FUEL;
+  let cost = c.dug ? moveCost(s) * CFG.TUNNEL_MULT : moveCost(s) + digFuel(s);
   if (turned) cost += turnCost(s);
   return cost;
 }
@@ -672,7 +729,7 @@ function pathCost(
     cy += d[1];
     const c = cellAt(s, cx, cy);
     if (c.seam) {
-      cost += 2.2 * (moveCost(s) + CFG.DIG_FUEL) + turnCost(s); // go around
+      cost += 2.2 * (moveCost(s) + digFuel(s)) + turnCost(s); // go around
     } else {
       cost += stepCost(s, cx, cy, dir !== null && dir !== nd);
     }
@@ -710,7 +767,7 @@ function costMapFrom(
       const c = cellAt(s, nx, ny);
       if (c.seam) continue;
       let step =
-        (c.dug ? moveCost(s) * CFG.TUNNEL_MULT : moveCost(s) + CFG.DIG_FUEL) +
+        (c.dug ? moveCost(s) * CFG.TUNNEL_MULT : moveCost(s) + digFuel(s)) +
         turnAllow;
       if (avoidHazard && c.known && c.hazard > 0) {
         if (s.sink - c.hazard <= 0) continue; // never route through death
@@ -838,29 +895,30 @@ export function applyExtract(state: RunState): ApplyResult {
   const s = clone(state);
   if (s.status !== "active") return { s, err: "run over" };
   const cell = cellAt(s, s.x, s.y);
-  if (cell.tier === 0 || cell.spent) return { s, err: "nothing here" };
+  if (cell.grade === 0 || cell.spent) return { s, err: "nothing here" };
 
   const room = s.chassis.hold - heldUnits(s);
   const take = Math.min(cell.units, room, s.energy);
   if (take <= 0) return { s, err: room <= 0 ? "hold full" : "out of energy" };
-  if (s.fuel < CFG.EXTRACT_FUEL) return { s, err: "not enough fuel to cut" };
+  const cost = extractFuel(s);
+  if (s.fuel < cost) return { s, err: "not enough fuel to cut" };
 
-  s.fuel -= CFG.EXTRACT_FUEL;
-  s.fuelUsed += CFG.EXTRACT_FUEL;
+  s.fuel -= cost;
+  s.fuelUsed += cost;
   s.energy -= take;
   cell.units -= take;
   if (cell.units <= 0) {
     cell.spent = true;
-    cell.tier_kept = cell.tier;
+    cell.grade_kept = cell.grade;
   }
-  s.carrying.push({ tier: cell.tier, units: take });
+  s.carrying.push({ oreType: cell.oreType, grade: cell.grade, units: take });
   s.log.push({
     n: ++s.step,
-    t: `cut ${take}u g${cell.tier}`,
-    c: CFG.EXTRACT_FUEL,
+    t: `cut ${take}u g${cell.grade}`,
+    c: cost,
     k: "ex",
   });
-  if (cell.units <= 0) cell.tier = 0;
+  if (cell.units <= 0) cell.grade = 0;
   pruneContacts(s);
   return { s };
 }
@@ -876,7 +934,7 @@ export function oreClusters(s: RunState): OreCluster[] {
   const seen = new Set<number>(),
     out: OreCluster[] = [];
   for (const c of s.cells) {
-    if (c.tier === 0 || c.spent || seen.has(idx(c.x, c.y))) continue;
+    if (c.grade === 0 || c.spent || seen.has(idx(c.x, c.y))) continue;
     const stack = [c],
       group: Cell[] = [];
     seen.add(idx(c.x, c.y));
@@ -888,7 +946,7 @@ export function oreClusters(s: RunState): OreCluster[] {
           ny = n.y + DIRS[k][1];
         if (!inBounds(nx, ny)) continue;
         const m = cellAt(s, nx, ny);
-        if (m.tier === 0 || m.spent || seen.has(idx(nx, ny))) continue;
+        if (m.grade === 0 || m.spent || seen.has(idx(nx, ny))) continue;
         seen.add(idx(nx, ny));
         stack.push(m);
       }
@@ -896,10 +954,10 @@ export function oreClusters(s: RunState): OreCluster[] {
     const mass = group.reduce((n, g) => n + g.units, 0);
     const cx = group.reduce((n, g) => n + g.x, 0) / group.length;
     const cy = group.reduce((n, g) => n + g.y, 0) / group.length;
-    const tier = Math.round(
-      group.reduce((n, g) => n + g.tier * g.units, 0) / mass,
+    const grade = Math.round(
+      group.reduce((n, g) => n + g.grade * g.units, 0) / mass,
     );
-    out.push({ cx, cy, mass, tier, cells: group.length });
+    out.push({ cx, cy, mass, oreType: group[0].oreType, grade, cells: group.length });
   }
   return out;
 }
@@ -962,15 +1020,16 @@ export function applyPing(state: RunState): ApplyResult {
         blur,
         fixes: 1,
         mass: g.mass,
-        tier: g.tier,
+        oreType: g.oreType,
+        grade: g.grade,
       });
       ex = s.contacts[s.contacts.length - 1];
     }
     // mass reads honestly; grade only ever comes back as a range
     ex.mass = g.mass;
     const width = Math.max(0.5, s.chassis.analyser / Math.sqrt(ex.fixes));
-    ex.lo = Math.max(1, Math.round(g.tier - width / 2));
-    ex.hi = Math.min(4, Math.round(g.tier + width / 2));
+    ex.lo = Math.max(1, Math.round(g.grade - width / 2));
+    ex.hi = Math.min(4, Math.round(g.grade + width / 2));
     if (ex.lo > ex.hi) ex.hi = ex.lo;
   }
 
@@ -998,7 +1057,7 @@ function contactResolved(s: RunState, k: Contact): boolean {
         y = Math.round(k.ty + dy);
       if (!inBounds(x, y)) continue;
       const c = cellAt(s, x, y);
-      if (c.tier > 0 && !c.spent) {
+      if (c.grade > 0 && !c.spent) {
         anyLeft = true;
         if (c.known) return true;
       }
@@ -1041,7 +1100,7 @@ export function applySiphon(state: RunState): ApplyResult {
 
   // Burns the lowest grade first — no UI here for the player to choose,
   // and the sensible default wouldn't sacrifice the best ore either.
-  const sorted = [...s.carrying].sort((a, b) => a.tier - b.tier);
+  const sorted = [...s.carrying].sort((a, b) => a.grade - b.grade);
   let burned = 0;
   const kept: OreLoad[] = [];
   for (const load of sorted) {
@@ -1053,7 +1112,8 @@ export function applySiphon(state: RunState): ApplyResult {
     burned += take;
     toBurn -= take;
     const remaining = load.units - take;
-    if (remaining > 0) kept.push({ tier: load.tier, units: remaining });
+    if (remaining > 0)
+      kept.push({ oreType: load.oreType, grade: load.grade, units: remaining });
   }
   s.carrying = kept;
 
@@ -1125,7 +1185,7 @@ export function applyEnd(state: RunState, force?: boolean): ApplyResult {
 export function score(s: RunState): ScoreResult {
   const units = s.banked.reduce((n, o) => n + o.units, 0);
   const value = s.banked.reduce(
-    (n, o) => n + o.units * CFG.GRADE_VALUE[o.tier],
+    (n, o) => n + o.units * oreGradeValue(o.oreType, o.grade),
     0,
   );
   const revenue = value * CFG.ORE_PRICE;
@@ -1179,7 +1239,7 @@ export function runAI(
     (goal.kind === "ore" &&
       (() => {
         const c = cellAt(st, goal!.x, goal!.y);
-        return c.tier === 0 || c.spent;
+        return c.grade === 0 || c.spent;
       })());
   let guard = 0,
     stall = 0,
@@ -1233,10 +1293,10 @@ export function runAI(
     }
     const here = cellAt(s, s.x, s.y);
     if (
-      here.tier > 0 &&
+      here.grade > 0 &&
       !here.spent &&
       s.fuel >
-        CFG.EXTRACT_FUEL +
+        extractFuel(s) +
           returnCost(s, s.x, s.y) * CFG.AI_SAFETY +
           CFG.AI_RESERVE
     ) {
@@ -1280,7 +1340,7 @@ export function runAI(
       // nothing detected: probe outward, but only with real fuel in hand
       if (
         s.fuel >
-        returnCost(s, s.x, s.y) * 1.6 + 12 * (moveCost(s) + CFG.DIG_FUEL)
+        returnCost(s, s.x, s.y) * 1.6 + 12 * (moveCost(s) + digFuel(s))
       ) {
         const b = s.bearing ? s.bearing.dir : null;
         const dx = b && b.includes("E") ? 3 : b && b.includes("W") ? -3 : 2;
@@ -1331,7 +1391,8 @@ function contactTarget(s: RunState, chassis: Chassis): Point | null {
     if (s.fuel < (reach + home) * 1.2 + 4) continue;
     const take = Math.min(k.mass, chassis.hold);
     if (reach > chassis.fuelCap * CFG.AI_REACH * 1.4) continue;
-    const gain = take * CFG.GRADE_VALUE[Math.max(1, k.tier)] * CFG.ORE_PRICE;
+    const gain =
+      take * oreGradeValue(k.oreType, Math.max(1, k.grade)) * CFG.ORE_PRICE;
     const spend = reach * CFG.FUEL_PRICE;
     if (gain <= spend * CFG.AI_MARGIN) continue;
     const sc = take / (reach + 10);
@@ -1348,9 +1409,9 @@ function pickTarget(s: RunState, chassis: Chassis): Cell | null {
     bestScore = 0;
   const room = chassis.hold - heldUnits(s);
   for (const c of s.cells) {
-    if (c.tier === 0 || c.spent) continue;
+    if (c.grade === 0 || c.spent) continue;
     if (!aiKnows(s, c)) continue;
-    const reach = pathCost(s, s.x, s.y, c.x, c.y, s.dir) + CFG.EXTRACT_FUEL;
+    const reach = pathCost(s, s.x, s.y, c.x, c.y, s.dir) + extractFuel(s);
     const home = pathCost(s, c.x, c.y, s.base.x, s.base.y, null);
     if (s.fuel < (reach + home) * CFG.AI_SAFETY + CFG.AI_RESERVE) continue;
     const thin = s.sink < chassis.sinkCap * 0.55;
@@ -1376,8 +1437,8 @@ function pickTarget(s: RunState, chassis: Chassis): Cell | null {
     // cherry-picking the best seams and closing the skill gap. The cap is what keeps
     // it local and lazy, which is the whole point of a baseline.
     if (reach > chassis.fuelCap * CFG.AI_REACH) continue;
-    const gain = take * CFG.GRADE_VALUE[c.tier] * CFG.ORE_PRICE;
-    const spend = (reach + CFG.EXTRACT_FUEL) * CFG.FUEL_PRICE;
+    const gain = take * oreGradeValue(c.oreType, c.grade) * CFG.ORE_PRICE;
+    const spend = (reach + extractFuel(s)) * CFG.FUEL_PRICE;
     if (gain <= spend * CFG.AI_MARGIN) continue;
     const sc = take / (reach + 1);
     if (sc > bestScore) {

@@ -8,5 +8,6 @@ export type InventoryCardProps = {
   equippedQuantity: number;
   isExpansion: boolean;
   isEquipmentSlot: boolean;
+  isOre: boolean;
   accent?: Accent;
 };

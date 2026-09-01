@@ -14,6 +14,7 @@ export function InventoryCard({
   equippedQuantity,
   isExpansion,
   isEquipmentSlot,
+  isOre,
   accent = "consumable",
 }: InventoryCardProps) {
   const a = ACCENTS[accent];
@@ -60,6 +61,12 @@ export function InventoryCard({
                 value={String(ownedQuantity)}
                 caption="slots added"
                 tone={a.text}
+              />
+            ) : isOre ? (
+              <Stat
+                value={String(ownedQuantity)}
+                caption="stockpiled"
+                tone={ownedQuantity > 0 ? a.text : ATOMS.textDimmer}
               />
             ) : isEquipmentSlot ? (
               <Stat

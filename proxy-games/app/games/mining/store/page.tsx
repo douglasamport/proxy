@@ -188,7 +188,11 @@ export default function StorePage() {
             // the buy button — and route the purchase to the wrong
             // endpoint — after the first ore siphon/line scanner purchase.
             const isEquipmentSlotUnlock = item.category === "equipment_slot";
-            const alreadyOwned = isEquipmentSlotUnlock && owned >= 1;
+            // Per-mineral licences (see db/013_mineral_licences.sql) —
+            // same one-time-gate display as the equipment bay unlock
+            // above, just one row per mineral instead of a single row.
+            const isLicence = item.category === "licence";
+            const alreadyOwned = (isEquipmentSlotUnlock || isLicence) && owned >= 1;
             const cost = isExpansion
               ? Number(item.cost) * 2 ** owned
               : Number(item.cost);
@@ -212,7 +216,7 @@ export default function StorePage() {
                 statusValue={
                   isExpansion
                     ? String(owned)
-                    : isEquipmentSlotUnlock
+                    : isEquipmentSlotUnlock || isLicence
                       ? alreadyOwned
                         ? "✓"
                         : "—"
@@ -221,7 +225,7 @@ export default function StorePage() {
                 statusCaption={
                   isExpansion
                     ? "slots added"
-                    : isEquipmentSlotUnlock
+                    : isEquipmentSlotUnlock || isLicence
                       ? alreadyOwned
                         ? "unlocked"
                         : "locked"
