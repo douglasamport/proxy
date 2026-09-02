@@ -5,11 +5,15 @@ import { useRouter } from "next/navigation";
 import type { StatKey } from "@/lib/mining-engine";
 import type { CatalogItem, InventoryRow } from "@/lib/mining-inventory";
 import { categoryIcon } from "../icons";
-import { ItemCard } from "@/components/ItemCard";
-import { categoryOptions, FilterBar } from "@/components/FilterBar";
-import { GameHeader } from "@/components/GameHeader";
+import { ItemCard } from "@/app/games/mining/components/ItemCard";
+import {
+  categoryOptions,
+  FilterBar,
+} from "@/app/games/mining/components/FilterBar";
+import { GameHeader } from "@/app/games/mining/components/GameHeader";
 import { SellQuantityModal } from "./SellQuantityModal";
 import { accentForCategory, ACCENTS, ATOMS } from "@/lib/mining-theme";
+import { useInventory } from "../layout";
 
 // Not imported as a value from lib/mining-inventory.ts — that module pulls
 // in the DB client, which has no business in a client bundle. Just string
@@ -41,27 +45,20 @@ function effectsText(effects: Partial<Record<StatKey, number>>): string {
 // buying is allowed for a given item (see build-spec-ore-progression.md,
 // Stage 5/6 follow-up: ore trading moved to its own dedicated screen).
 export interface CatalogScreenProps {
-  section: string;
-  headerLinks: { href: string; label: string }[];
   categoryFilter: (category: string) => boolean;
   buyDisabledReason?: (item: CatalogItem) => string | undefined;
 }
 
 export function CatalogScreen({
-  section,
-  headerLinks,
   categoryFilter,
   buyDisabledReason,
 }: CatalogScreenProps) {
   const router = useRouter();
-  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [inventory, setInventory] = useState<InventoryRow[]>([]);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [authRequired, setAuthRequired] = useState(false);
   const [filter, setFilter] = useState<string>(ALL);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [sellBusyKey, setSellBusyKey] = useState<string | null>(null);
   const [error, setError] = useState("");
+
   // The item currently in the sell-quantity modal, if any — set by an
   // ItemCard's Sell click, cleared on cancel or once the sale completes.
   const [sellTarget, setSellTarget] = useState<{
@@ -71,25 +68,7 @@ export function CatalogScreen({
     maxQuantity: number;
   } | null>(null);
 
-  const load = useCallback(async () => {
-    const res = await fetch("/api/inventory?game=mining");
-    if (!res.ok) {
-      if (res.status === 401) setAuthRequired(true);
-      return;
-    }
-    setAuthRequired(false);
-    const data = await res.json();
-    setCatalog(data.catalog);
-    setInventory(data.inventory);
-    setBalance(data.balance);
-  }, []);
-
-  const didLoadRef = useRef(false);
-  useEffect(() => {
-    if (didLoadRef.current) return;
-    didLoadRef.current = true;
-    load();
-  }, [load]);
+  const { catalog, inventory, balance, load } = useInventory();
 
   const ownedByKey = new Map(
     inventory.map((r) => [r.item_key, r.owned_quantity]),
@@ -203,30 +182,32 @@ export function CatalogScreen({
     router.refresh();
   }
 
-  if (authRequired) {
-    return (
-      <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-        <GameHeader section={section} links={[{ href: "/games/mining", label: "Back to run" }]} />
-        <main className="mx-auto max-w-xl px-6 py-16 text-center">
-          <p className={`text-sm ${ATOMS.textDim}`}>This screen is tied to your account balance.</p>
-          <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
-            Sign in
-          </a>
-        </main>
-      </div>
-    );
-  }
+  // if (authRequired) {
+  //   return (
+  //     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+  //       <GameHeader section={section} links={[{ href: "/games/mining", label: "Back to run" }]} />
+  //       <main className="mx-auto max-w-xl px-6 py-16 text-center">
+  //         <p className={`text-sm ${ATOMS.textDim}`}>This screen is tied to your account balance.</p>
+  //         <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
+  //           Sign in
+  //         </a>
+  //       </main>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-      <GameHeader
+      {/* <GameHeader
         section={section}
         stats={[{ label: "balance", value: balance ?? "—" }]}
         links={headerLinks}
-      />
+      /> */}
 
       <main className="mx-auto max-w-6xl px-6 py-8">
-        {error && <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>}
+        {error && (
+          <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>
+        )}
 
         <FilterBar
           legend="filter"
@@ -252,7 +233,8 @@ export function CatalogScreen({
             // in db/014) — same one-time-gate display as the equipment bay
             // unlock above, just one row per mineral instead of a single row.
             const isLicense = item.category === "license";
-            const alreadyOwned = (isEquipmentSlotUnlock || isLicense) && owned >= 1;
+            const alreadyOwned =
+              (isEquipmentSlotUnlock || isLicense) && owned >= 1;
             const cost = isExpansion
               ? Number(item.cost) * 2 ** owned
               : Number(item.cost);
@@ -280,7 +262,7 @@ export function CatalogScreen({
                 funds={funds}
                 owned={alreadyOwned}
                 busy={busyKey === item.item_key}
-                accent={accentForCategory(item.category)}
+                accent={accentForCategory(item.category, item.item_key)}
                 buyDisabledReason={buyDisabledReason?.(item)}
                 sellValue={sellValue}
                 sellQuantity={sellableQuantity}

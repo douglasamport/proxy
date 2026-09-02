@@ -17,12 +17,12 @@ export default function SurveyorPage() {
 
   return (
     <CatalogScreen
-      section="surveyor"
-      headerLinks={[
-        { href: "/games/mining/store", label: "Mechanic" },
-        { href: "/games/mining/build", label: "Build" },
-        { href: "/games/mining", label: "Back to run" },
-      ]}
+      // section="surveyor"
+      // headerLinks={[
+      //   { href: "/games/mining/store", label: "Mechanic" },
+      //   { href: "/games/mining/build", label: "Build" },
+      //   { href: "/games/mining", label: "Back to run" },
+      // ]}
       categoryFilter={categoryFilter}
     />
   );

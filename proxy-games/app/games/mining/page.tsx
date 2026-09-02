@@ -22,7 +22,7 @@ import {
 } from "./components/RunScreen";
 import { ResultsModal } from "./components/ResultsModal";
 import { SurveyPurchaseModal } from "./components/SurveyPurchaseModal";
-import { GameHeader } from "@/components/GameHeader";
+import { GameHeader } from "@/app/games/mining/components/GameHeader";
 import { ACCENTS, ATOMS, SURFACE } from "@/lib/mining-theme";
 
 type Phase = "fit" | "run";
@@ -47,7 +47,7 @@ const KEYMAP: Record<string, DirKey> = {
 // what they're given, not what they can dial in. The server enforces this
 // too (see app/api/runs/field/route.ts) — this is a UI convenience, not the
 // actual security boundary.
-const SHOW_SEED_CONTROLS = process.env.NODE_ENV !== "production";
+// const SHOW_SEED_CONTROLS = process.env.NODE_ENV !== "production";
 
 interface EndResult {
   status: RunStatus;
@@ -93,7 +93,10 @@ export default function MiningPage() {
   const [claim, setClaim] = useState(CFG.ENERGY);
   const [survey, setSurvey] = useState<SurveyTier>("none");
   const [surveyReport, setSurveyReport] = useState<SurveyReport | null>(null);
-  const [dims, setDims] = useState<FieldDims>({ W: CFG.BLOCK_W, H: CFG.BLOCK_H });
+  const [dims, setDims] = useState<FieldDims>({
+    W: CFG.BLOCK_W,
+    H: CFG.BLOCK_H,
+  });
   const [balance, setBalance] = useState<string | null>(null);
   const [pendingSurveyTier, setPendingSurveyTier] = useState<
     "basic" | "full" | null
@@ -113,13 +116,14 @@ export default function MiningPage() {
   // Plain page load/navigation uses resumeCurrentRun() below instead, which
   // doesn't discard anything.
   const assignField = useCallback(async (seedOverride?: number) => {
-    const r = await postJSON<{ runId: string; balance: string; dims: FieldDims }>(
-      "/api/runs/field",
-      {
-        game: "mining",
-        ...(seedOverride !== undefined ? { seed: seedOverride } : {}),
-      },
-    );
+    const r = await postJSON<{
+      runId: string;
+      balance: string;
+      dims: FieldDims;
+    }>("/api/runs/field", {
+      game: "mining",
+      ...(seedOverride !== undefined ? { seed: seedOverride } : {}),
+    });
     if (!r.ok) {
       if (r.status === 401) setAuthRequired(true);
       return;
@@ -245,11 +249,6 @@ export default function MiningPage() {
     router.refresh(); // balance changed — refresh the header's server-rendered figure
   }
 
-  function handleReseed() {
-    const parsed = parseInt(devSeedInput, 10);
-    assignField(Number.isFinite(parsed) ? parsed : undefined);
-  }
-
   function handleRefit() {
     assignField();
   }
@@ -363,52 +362,61 @@ export default function MiningPage() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [phase, view, doMove, doExtract, doPing]);
 
-  if (authRequired) {
-    return (
-      <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-        <GameHeader section="run" />
-        <main className="mx-auto max-w-xl px-6 py-16 text-center">
-          <p className={`text-sm ${ATOMS.textDim}`}>
-            Live run state now lives server-side against your account, so playing (not just saving) needs you signed in.
-          </p>
-          <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
-            Sign in
-          </a>
-        </main>
-      </div>
-    );
-  }
+  // if (authRequired) {
+  //   return (
+  //     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+  //       <GameHeader section="run" />
+  //       <main className="mx-auto max-w-xl px-6 py-16 text-center">
+  //         <p className={`text-sm ${ATOMS.textDim}`}>
+  //           Live run state now lives server-side against your account, so playing (not just saving) needs you signed in.
+  //         </p>
+  //         <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
+  //           Sign in
+  //         </a>
+  //       </main>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-      <GameHeader section="run prototype">
+      {/* <GameHeader section="run prototype">
         {SHOW_SEED_CONTROLS && (
           <div className="flex items-center gap-2">
-            <span className={`font-mono text-[11px] ${ATOMS.textDim}`}>seed</span>
+            <span className={`font-mono text-[11px] ${ATOMS.textDim}`}>
+              seed
+            </span>
             <input
               placeholder="random"
               value={devSeedInput}
               onChange={(e) => setDevSeedInput(e.target.value)}
               className={`w-24 rounded border ${ATOMS.borderLine} bg-transparent px-2 py-1 font-mono text-[11px] ${ATOMS.textPrimary}`}
             />
-            <button onClick={handleReseed} className={`rounded border ${ATOMS.borderLine} px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.12em] ${ATOMS.textDim} transition ${SURFACE.navLinkHover}`}>
+            <button
+              onClick={handleReseed}
+              className={`rounded border ${ATOMS.borderLine} px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.12em] ${ATOMS.textDim} transition ${SURFACE.navLinkHover}`}
+            >
               New field
             </button>
           </div>
         )}
         <button
           onClick={handleRefit}
-          disabled={phase === 'fit'}
+          disabled={phase === "fit"}
           className={`rounded border ${ATOMS.borderLine} px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.12em] ${ATOMS.textDim} transition ${SURFACE.navLinkHover} disabled:cursor-not-allowed disabled:opacity-30`}
         >
           Refit
         </button>
-      </GameHeader>
+      </GameHeader> */}
 
       {phase === "fit" ? (
         <main className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-6 py-8 lg:grid-cols-[minmax(340px,42%)_1fr]">
           <div>
-            {fitError && <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{fitError}</div>}
+            {fitError && (
+              <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>
+                {fitError}
+              </div>
+            )}
             <FittingPanel
               chassis={chassis}
               claim={claim}
@@ -445,7 +453,11 @@ export default function MiningPage() {
           </div>
 
           <div className="min-h-0">
-            <div className={`mb-2 font-mono text-[10px] uppercase tracking-[.16em] ${ATOMS.textDim}`}>Run ledger</div>
+            <div
+              className={`mb-2 font-mono text-[10px] uppercase tracking-[.16em] ${ATOMS.textDim}`}
+            >
+              Run ledger
+            </div>
             <div className="h-[70vh]">{view && <RunLedger run={view} />}</div>
           </div>
         </main>

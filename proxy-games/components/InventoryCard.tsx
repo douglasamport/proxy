@@ -3,7 +3,7 @@
 import { InventoryCardProps } from "@/lib/mining-types";
 
 import { ACCENTS, ATOMS, SURFACE } from "@/lib/mining-theme";
-import { PlateStrip } from "@/components/PlateOverlay";
+import { PlateStrip } from "@/app/games/mining/components/PlateOverlay";
 
 export function InventoryCard({
   label,
@@ -21,7 +21,9 @@ export function InventoryCard({
   const unlocked = isEquipmentSlot && ownedQuantity >= 1;
 
   return (
-    <div className={`relative overflow-hidden rounded-lg ${SURFACE.card} ${SURFACE.cardShadowSm}`}>
+    <div
+      className={`relative overflow-hidden rounded-lg ${SURFACE.card} ${SURFACE.cardShadowSm}`}
+    >
       {/* worn accent spine down the left edge */}
       <div className={`absolute inset-y-0 left-0 w-6 ${a.panel}`} aria-hidden>
         <PlateStrip tint={a.line} />
@@ -29,7 +31,9 @@ export function InventoryCard({
 
       <div className="flex gap-4 py-4 pl-10 pr-4">
         {/* art */}
-        <div className={`flex h-16 w-16 flex-none items-center justify-center rounded-md ${SURFACE.well}`}>
+        <div
+          className={`flex h-16 w-16 flex-none items-center justify-center rounded-md ${SURFACE.well}`}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element -- catalog art */}
           <img
             src={imageSrc}
@@ -40,22 +44,30 @@ export function InventoryCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <h2 className={`truncate text-sm font-bold uppercase tracking-wide ${ATOMS.textPrimary}`}>
+            <h2
+              className={`truncate text-sm font-bold uppercase tracking-wide ${ATOMS.textPrimary}`}
+            >
               {label}
             </h2>
-            <span className={`shrink-0 whitespace-nowrap font-mono text-[9px] uppercase tracking-[.16em] ${ATOMS.textDimmer}`}>
+            <span
+              className={`shrink-0 whitespace-nowrap font-mono text-[9px] uppercase tracking-[.16em] ${ATOMS.textDimmer}`}
+            >
               {category}
             </span>
           </div>
 
           {description && (
-            <p className={`mt-1 line-clamp-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
+            <p
+              className={`mt-1 line-clamp-2 text-[11px] leading-snug ${ATOMS.textDim}`}
+            >
               {description}
             </p>
           )}
 
           {/* readout strip */}
-          <div className={`mt-3 flex items-end gap-5 border-t ${ATOMS.borderInset} pt-2`}>
+          <div
+            className={`mt-3 flex items-end gap-5 border-t ${ATOMS.borderInset} pt-2`}
+          >
             {isExpansion ? (
               <Stat
                 value={String(ownedQuantity)}
@@ -109,9 +121,7 @@ function Stat({
       <div className={`font-mono text-xl font-bold leading-none ${tone}`}>
         {value}
       </div>
-      <div className={`mt-1 whitespace-nowrap ${SURFACE.label}`}>
-        {caption}
-      </div>
+      <div className={`mt-1 whitespace-nowrap ${SURFACE.label}`}>{caption}</div>
     </div>
   );
 }

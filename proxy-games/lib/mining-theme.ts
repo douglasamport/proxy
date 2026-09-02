@@ -94,6 +94,111 @@ export const ACCENTS = {
     btn: "bg-[#C2571F] hover:bg-[#D9663A]",
     line: PALETTE.rust,
   },
+
+  copper: {
+    panel: "bg-[#6E5218]",
+    text: "text-[#E0A33E]",
+    border: "border-[#E0A33E]",
+    tintBg: "bg-[#E0A33E]/10",
+    btn: "bg-[#B8841F] hover:bg-[#E0A33E]",
+    line: PALETTE.amber,
+  },
+  iron: {
+    panel: "bg-[#713313]",
+    text: "text-[#DF743F]",
+    border: "border-[#DF743F]",
+    tintBg: "bg-[#DF743F]/10",
+    btn: "bg-[#B7521F] hover:bg-[#DF743F]",
+    line: "#DF743F",
+  },
+  gold: {
+    panel: "bg-[#6E7113]",
+    text: "text-[#D9DF3F]",
+    border: "border-[#D9DF3F]",
+    tintBg: "bg-[#D9DF3F]/10",
+    btn: "bg-[#B2B71F] hover:bg-[#D9DF3F]",
+    line: "#D9DF3F",
+  },
+  cadmium: {
+    panel: "bg-[#4D7113]",
+    text: "text-[#A1DF3F]",
+    border: "border-[#A1DF3F]",
+    tintBg: "bg-[#A1DF3F]/10",
+    btn: "bg-[#7DB71F] hover:bg-[#A1DF3F]",
+    line: "#A1DF3F",
+  },
+  germanium: {
+    panel: "bg-[#2C7113]",
+    text: "text-[#6ADF3F]",
+    border: "border-[#6ADF3F]",
+    tintBg: "bg-[#6ADF3F]/10",
+    btn: "bg-[#48B71F] hover:bg-[#6ADF3F]",
+    line: "#6ADF3F",
+  },
+  yttrium: {
+    panel: "bg-[#13711B]",
+    text: "text-[#3FDF4C]",
+    border: "border-[#3FDF4C]",
+    tintBg: "bg-[#3FDF4C]/10",
+    btn: "bg-[#1FB72C] hover:bg-[#3FDF4C]",
+    line: "#3FDF4C",
+  },
+  lanthanum: {
+    panel: "bg-[#13713C]",
+    text: "text-[#3FDF84]",
+    border: "border-[#3FDF84]",
+    tintBg: "bg-[#3FDF84]/10",
+    btn: "bg-[#1FB761] hover:bg-[#3FDF84]",
+    line: "#3FDF84",
+  },
+  silica: {
+    panel: "bg-[#13715B]",
+    text: "text-[#3FDFB9]",
+    border: "border-[#3FDFB9]",
+    tintBg: "bg-[#3FDFB9]/10",
+    btn: "bg-[#1FB794] hover:bg-[#3FDFB9]",
+    line: "#3FDFB9",
+  },
+  zinc: {
+    panel: "bg-[#136671]",
+    text: "text-[#3FCCDF]",
+    border: "border-[#3FCCDF]",
+    tintBg: "bg-[#3FCCDF]/10",
+    btn: "bg-[#1FA5B7] hover:bg-[#3FCCDF]",
+    line: "#3FCCDF",
+  },
+  silver: {
+    panel: "bg-[#134571]",
+    text: "text-[#3F94DF]",
+    border: "border-[#3F94DF]",
+    tintBg: "bg-[#3F94DF]/10",
+    btn: "bg-[#1F70B7] hover:bg-[#3F94DF]",
+    line: "#3F94DF",
+  },
+  platinum: {
+    panel: "bg-[#132571]",
+    text: "text-[#3F5CDF]",
+    border: "border-[#3F5CDF]",
+    tintBg: "bg-[#3F5CDF]/10",
+    btn: "bg-[#1F3BB7] hover:bg-[#3F5CDF]",
+    line: "#3F5CDF",
+  },
+  tantalum: {
+    panel: "bg-[#231371]",
+    text: "text-[#5A3FDF]",
+    border: "border-[#5A3FDF]",
+    tintBg: "bg-[#5A3FDF]/10",
+    btn: "bg-[#381FB7] hover:bg-[#5A3FDF]",
+    line: "#5A3FDF",
+  },
+  neodymium: {
+    panel: "bg-[#421371]",
+    text: "text-[#8F3FDF]",
+    border: "border-[#8F3FDF]",
+    tintBg: "bg-[#8F3FDF]/10",
+    btn: "bg-[#6B1FB7] hover:bg-[#8F3FDF]",
+    line: "#8F3FDF",
+  },
 } as const;
 
 export type Accent = keyof typeof ACCENTS;
@@ -106,9 +211,23 @@ export const ACCENT_ALIASES = {
 } as const satisfies Record<string, Accent>;
 
 /** Maps a catalog category to its accent role. One place to change routing. */
-export function accentForCategory(category: string): Accent {
+export function accentForCategory(
+  category: string,
+  itemKey: string = "",
+): Accent {
   if (["expansion"].includes(category)) return "expansion";
   if (["equipment_slot", "equipment"].includes(category)) return "equipment";
+  if (["ore", "license"].includes(category)) {
+    const oreType = itemKey.includes("license_")
+      ? itemKey.replace("license_", "")
+      : itemKey;
+
+    // Fall back to "consumable" for anything that isn't a real ore key
+    // (an empty itemKey, a future catalog row this table hasn't caught up
+    // with yet) rather than returning a string ACCENTS has no entry for.
+    return oreType in ACCENTS ? (oreType as Accent) : "consumable";
+  }
+
   return "consumable";
 }
 
@@ -226,7 +345,8 @@ export const ATOMS = {
   // Complete, variant-prefix-included focus ring — same reasoning as
   // SURFACE.btnDisabled: `focus-visible:${outlineTeal}` would not generate
   // the rule, so the compound has to be written out as one literal.
-  focusRing: "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#54C6DC]",
+  focusRing:
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#54C6DC]",
 } as const;
 
 /** Reused Tailwind fragments, so card chrome stays identical across components. */
@@ -255,7 +375,8 @@ export const SURFACE = {
   // the rule (the scanner never sees that compound string, only the pieces
   // either side of the template expression). Any `disabled:x`/`hover:x`
   // combination has to be written out in full somewhere, not assembled.
-  btnDisabled: "disabled:cursor-not-allowed disabled:bg-[#2A343E] disabled:text-[#5A6873]",
+  btnDisabled:
+    "disabled:cursor-not-allowed disabled:bg-[#2A343E] disabled:text-[#5A6873]",
   // The one "just do the thing" CTA color (Launch run) — not an accent
   // role, since it's not about categorizing an item.
   btnPrimary: "bg-[#54C6DC] text-[#0B1116] hover:brightness-110",

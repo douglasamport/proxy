@@ -1,7 +1,7 @@
 "use client";
 
 import type { RunStatus, ScoreResult } from "@/lib/mining-engine";
-import { Modal } from "@/components/Modal";
+import { Modal } from "@/app/games/mining/components/Modal";
 import { ATOMS, SURFACE } from "@/lib/mining-theme";
 
 const VERDICT: Record<string, [string, string]> = {
@@ -10,11 +10,20 @@ const VERDICT: Record<string, [string, string]> = {
   wrecked: ["Wrecked — sink gone", ATOMS.textDanger],
 };
 
-function Delta({ a, b, invert = false }: { a: number; b: number; invert?: boolean }) {
+function Delta({
+  a,
+  b,
+  invert = false,
+}: {
+  a: number;
+  b: number;
+  invert?: boolean;
+}) {
   if (!a && !b) return null;
   const diff = a - b,
     up = invert ? diff < 0 : diff > 0;
-  if (Math.abs(diff) < 0.005) return <span className={ATOMS.textDimmer}>even</span>;
+  if (Math.abs(diff) < 0.005)
+    return <span className={ATOMS.textDimmer}>even</span>;
   return (
     <span className={up ? ATOMS.textOk : ATOMS.textDanger}>
       {diff > 0 ? "+" : ""}
@@ -23,14 +32,28 @@ function Delta({ a, b, invert = false }: { a: number; b: number; invert?: boolea
   );
 }
 
-function Row({ name, a, b, fmt = (v: number) => v.toFixed(0), invert = false }: {
-  name: string; a: number; b: number; fmt?: (v: number) => string; invert?: boolean;
+function Row({
+  name,
+  a,
+  b,
+  fmt = (v: number) => v.toFixed(0),
+  invert = false,
+}: {
+  name: string;
+  a: number;
+  b: number;
+  fmt?: (v: number) => string;
+  invert?: boolean;
 }) {
   return (
     <tr className={`border-t ${ATOMS.borderInset}`}>
       <td className={`py-1.5 pr-3 ${ATOMS.textDim}`}>{name}</td>
-      <td className={`px-2 py-1.5 text-right font-mono ${ATOMS.textPrimary}`}>{fmt(a)}</td>
-      <td className={`px-2 py-1.5 text-right font-mono ${ATOMS.textDim}`}>{fmt(b)}</td>
+      <td className={`px-2 py-1.5 text-right font-mono ${ATOMS.textPrimary}`}>
+        {fmt(a)}
+      </td>
+      <td className={`px-2 py-1.5 text-right font-mono ${ATOMS.textDim}`}>
+        {fmt(b)}
+      </td>
       <td className="py-1.5 pl-2 text-right font-mono text-[11px]">
         <Delta a={a} b={b} invert={invert} />
       </td>
@@ -83,7 +106,11 @@ export function ResultsModal({
 
   return (
     <Modal wide>
-      <div className={`font-mono text-sm font-bold uppercase tracking-wide ${vcol}`}>{vtxt}</div>
+      <div
+        className={`font-mono text-sm font-bold uppercase tracking-wide ${vcol}`}
+      >
+        {vtxt}
+      </div>
       <h2 className={`mt-1 text-[12px] ${ATOMS.textDim}`}>
         Run complete · seed {seed} · {energyStart}E claim
       </h2>
@@ -103,7 +130,9 @@ export function ResultsModal({
           <CostLine name="Claim" amount={you.claimCost} />
         </div>
 
-        <div className={`mt-3 flex justify-between border-t ${ATOMS.borderInset} pt-2 text-sm`}>
+        <div
+          className={`mt-3 flex justify-between border-t ${ATOMS.borderInset} pt-2 text-sm`}
+        >
           <span className={ATOMS.textPrimary}>Net</span>
           <b className={netUp ? ATOMS.textOk : ATOMS.textDanger}>
             {netUp ? "+" : ""}
@@ -114,12 +143,15 @@ export function ResultsModal({
 
       {you.lost > 0 && (
         <div className={`mt-3 text-[11px] ${ATOMS.textDanger}`}>
-          Lost {you.lost} units in the field, plus the energy spent lifting them.
+          Lost {you.lost} units in the field, plus the energy spent lifting
+          them.
         </div>
       )}
 
       <details className="mt-4">
-        <summary className={`cursor-pointer font-mono text-[11px] uppercase tracking-wider ${ATOMS.textDim}`}>
+        <summary
+          className={`cursor-pointer font-mono text-[11px] uppercase tracking-wider ${ATOMS.textDim}`}
+        >
           Compare to autopilot
         </summary>
         <table className="mt-2 w-full text-[11px]">
@@ -132,22 +164,45 @@ export function ResultsModal({
             </tr>
           </thead>
           <tbody>
-            <Row name="Claim spent" a={you.claimSpent * 100} b={ai.claimSpent * 100} fmt={(v) => v.toFixed(0) + "%"} />
+            <Row
+              name="Claim spent"
+              a={you.claimSpent * 100}
+              b={ai.claimSpent * 100}
+              fmt={(v) => v.toFixed(0) + "%"}
+            />
             <Row name="Units banked" a={you.units} b={ai.units} />
             <Row name="Trips" a={you.trips} b={ai.trips} invert />
-            <Row name="Average grade" a={you.grade} b={ai.grade} fmt={(v) => v.toFixed(2)} />
+            <Row
+              name="Average grade"
+              a={you.grade}
+              b={ai.grade}
+              fmt={(v) => v.toFixed(2)}
+            />
             <Row name="Gross revenue" a={you.revenue} b={ai.revenue} />
             <Row name="Claim cost" a={you.claimCost} b={ai.claimCost} invert />
             <Row name="Total cost" a={you.cost} b={ai.cost} invert />
-            <Row name="Cost per unit" a={you.costPerUnit} b={ai.costPerUnit} fmt={(v) => v.toFixed(2)} invert />
+            <Row
+              name="Cost per unit"
+              a={you.costPerUnit}
+              b={ai.costPerUnit}
+              fmt={(v) => v.toFixed(2)}
+              invert
+            />
             <Row name="Net" a={you.net} b={ai.net} />
-            <Row name="Cost as % of revenue" a={you.margin * 100} b={ai.margin * 100} fmt={(v) => v.toFixed(1) + "%"} invert />
+            <Row
+              name="Cost as % of revenue"
+              a={you.margin * 100}
+              b={ai.margin * 100}
+              fmt={(v) => v.toFixed(1) + "%"}
+              invert
+            />
           </tbody>
         </table>
       </details>
 
       <div className={`mt-4 text-[11px] ${ATOMS.textDim}`}>
-        Keep the credits, or stockpile the ore itself for the refinery later — your call, per run.
+        Keep the credits, or stockpile the ore itself for the refinery later —
+        your call, per run.
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button

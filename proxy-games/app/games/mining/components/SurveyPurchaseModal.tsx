@@ -2,7 +2,7 @@
 
 import { CFG } from "@/lib/mining-engine";
 import type { SurveyTier } from "@/lib/mining-engine";
-import { Modal } from "@/components/Modal";
+import { Modal } from "@/app/games/mining/components/Modal";
 import { ATOMS, SURFACE } from "@/lib/mining-theme";
 
 interface SurveyPurchaseModalProps {
@@ -25,12 +25,15 @@ export function SurveyPurchaseModal({
   const spec = CFG.SURVEY[tier];
   return (
     <Modal>
-      <h2 className={`font-mono text-sm font-bold uppercase tracking-wide ${ATOMS.textPrimary}`}>
+      <h2
+        className={`font-mono text-sm font-bold uppercase tracking-wide ${ATOMS.textPrimary}`}
+      >
         Buy {spec.label} survey?
       </h2>
       <p className={`mt-2 text-[12px] leading-relaxed ${ATOMS.textDim}`}>
-        This costs <b className={ATOMS.textPrimary}>{spec.cost}</b>, charged immediately. Switching to a
-        different tier afterward charges again in full.
+        This costs <b className={ATOMS.textPrimary}>{spec.cost}</b>, charged
+        immediately. Switching to a different tier afterward charges again in
+        full.
       </p>
       <div className="mt-4 flex gap-2">
         <button

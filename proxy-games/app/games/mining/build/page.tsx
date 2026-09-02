@@ -1,15 +1,16 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CFG, chassisFromEffects, fuelMult } from '@/lib/mining-engine';
-import type { Chassis, StatKey } from '@/lib/mining-engine';
-import type { CatalogItem, InventoryRow } from '@/lib/mining-inventory';
-import { categoryIcon, FullBuildIcon } from '../icons';
-import { GameHeader } from '@/components/GameHeader';
-import { FilterBar } from '@/components/FilterBar';
-import { EquipCard } from '@/components/EquipCard';
-import { StatsPanel } from '@/components/StatsPanel';
-import { accentForCategory, ACCENTS, ATOMS } from '@/lib/mining-theme';
+import { useMemo, useState } from "react";
+import { CFG, fuelMult } from "@/lib/mining-engine";
+import type { StatKey } from "@/lib/mining-engine";
+import type { CatalogItem } from "@/lib/mining-inventory";
+import { categoryIcon, FullBuildIcon } from "../icons";
+import { GameHeader } from "@/app/games/mining/components/GameHeader";
+import { FilterBar } from "@/app/games/mining/components/FilterBar";
+import { EquipCard } from "@/app/games/mining/components/EquipCard";
+import { StatsPanel } from "@/app/games/mining/components/StatsPanel";
+import { accentForCategory, ATOMS } from "@/lib/mining-theme";
+import { useInventory } from "../layout";
 
 // The dedicated chassis build screen. Separate from the per-run fitting
 // flow on purpose: a loadout is now a pile of *owned* items (you might own
@@ -21,8 +22,8 @@ import { accentForCategory, ACCENTS, ATOMS } from '@/lib/mining-theme';
 // shows live chassis stats, recomputed after every equip change. What's
 // equipped here is what the next run launches with (see FittingPanel's
 // read-only Chassis section on the fitting page).
-const FULL_BUILD = '__full__';
-const EQUIPMENT_CATEGORY = 'equipment';
+const FULL_BUILD = "__full__";
+const EQUIPMENT_CATEGORY = "equipment";
 
 function categoryLabel(cat: string): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1);
@@ -32,83 +33,63 @@ function categoryLabel(cat: string): string {
 // reserved so dropping in real image_url values later is a data change,
 // not a UI one.
 function imgSrc(item: CatalogItem): string {
-  return item.image_url || `https://placehold.co/72x72/1B222B/54C6DC?text=${encodeURIComponent(item.label.slice(0, 2).toUpperCase())}`;
+  return (
+    item.image_url ||
+    `https://placehold.co/72x72/1B222B/54C6DC?text=${encodeURIComponent(item.label.slice(0, 2).toUpperCase())}`
+  );
 }
 
 export default function BuildPage() {
-  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [inventory, setInventory] = useState<InventoryRow[]>([]);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [chassis, setChassis] = useState<Chassis>(() => chassisFromEffects({}));
-  const [slotTotal, setSlotTotal] = useState(CFG.SLOT_TOTAL);
-  const [equipmentSlotTotal, setEquipmentSlotTotal] = useState(0);
-  const [authRequired, setAuthRequired] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
-  // Chassis comes from the server (baseline + equipped effects, see
-  // computeChassis() in lib/mining-inventory.ts) rather than being
-  // re-derived here, so the stats panel can't drift from what launch
-  // actually uses — every equip/unequip re-fetches it via load().
-  const load = useCallback(async () => {
-    const res = await fetch('/api/inventory?game=mining');
-    if (!res.ok) {
-      if (res.status === 401) setAuthRequired(true);
-      return;
-    }
-    setAuthRequired(false);
-    const data = await res.json();
-    setCatalog(data.catalog);
-    setInventory(data.inventory);
-    setBalance(data.balance);
-    setChassis(data.chassis);
-    setSlotTotal(data.slotTotal);
-    setEquipmentSlotTotal(data.equipmentSlotTotal);
-  }, []);
-
-  const didLoadRef = useRef(false);
-  useEffect(() => {
-    if (didLoadRef.current) return;
-    didLoadRef.current = true;
-    load();
-  }, [load]);
+  const {
+    catalog,
+    inventory,
+    slotTotal,
+    equipmentSlotTotal,
+    chassis,
+    balance,
+    load,
+    equippedChassisTotal,
+    equippedEquipmentTotal,
+  } = useInventory();
 
   // 'expansion' and 'equipment_slot' aren't equippable — they're one-time
   // capacity purchases (see the Store), not something to add/remove per
   // run, so neither gets a filter option here.
+
   const categories = useMemo(
-    () => Array.from(new Set(catalog.map(c => c.category))).filter(c => c !== 'expansion' && c !== 'equipment_slot'),
-    [catalog]
+    () =>
+      Array.from(new Set(catalog.map((c) => c.category))).filter(
+        (c) => c !== "expansion" && c !== "equipment_slot",
+      ),
+    [catalog],
   );
 
   // Default the selection to the first category once the catalog loads —
   // not a mirrored copy of state, just filling in "nothing picked yet".
   const effectiveCategory = selectedCategory ?? categories[0] ?? FULL_BUILD;
 
-  const invByKey = useMemo(() => new Map(inventory.map(r => [r.item_key, r])), [inventory]);
-  const catByKey = useMemo(() => new Map(catalog.map(c => [c.item_key, c])), [catalog]);
+  const invByKey = useMemo(
+    () => new Map(inventory.map((r) => [r.item_key, r])),
+    [inventory],
+  );
 
-  // Equipment items (ore siphon, line scanner) draw against their own
-  // separate slot pool, not the chassis one — see getEquipmentSlotTotal()
-  // in lib/mining-inventory.ts.
-  let equippedChassisTotal = 0;
-  let equippedEquipmentTotal = 0;
-  for (const row of inventory) {
-    if (row.equipped_quantity <= 0) continue;
-    if (catByKey.get(row.item_key)?.category === EQUIPMENT_CATEGORY) equippedEquipmentTotal += row.equipped_quantity;
-    else equippedChassisTotal += row.equipped_quantity;
-  }
   const chassisSlotsLeft = slotTotal - equippedChassisTotal;
   const equipmentSlotsLeft = equipmentSlotTotal - equippedEquipmentTotal;
 
   const equippedByCategory = useMemo(() => {
-    const byKey = new Map(catalog.map(c => [c.item_key, c]));
+    const byKey = new Map(catalog.map((c) => [c.item_key, c]));
     const totals = new Map<string, number>();
     for (const row of inventory) {
       const item = byKey.get(row.item_key);
       if (!item || row.equipped_quantity <= 0) continue;
-      totals.set(item.category, (totals.get(item.category) ?? 0) + row.equipped_quantity);
+      totals.set(
+        item.category,
+        (totals.get(item.category) ?? 0) + row.equipped_quantity,
+      );
     }
     return totals;
   }, [catalog, inventory]);
@@ -118,76 +99,107 @@ export default function BuildPage() {
   // Store). Full build narrows further, to what's currently equipped.
   const items = useMemo(() => {
     if (effectiveCategory === FULL_BUILD) {
-      return catalog.filter(c => (invByKey.get(c.item_key)?.equipped_quantity ?? 0) > 0);
+      return catalog.filter(
+        (c) => (invByKey.get(c.item_key)?.equipped_quantity ?? 0) > 0,
+      );
     }
-    return catalog.filter(c => c.category === effectiveCategory && (invByKey.get(c.item_key)?.owned_quantity ?? 0) > 0);
+    return catalog.filter(
+      (c) =>
+        c.category === effectiveCategory &&
+        (invByKey.get(c.item_key)?.owned_quantity ?? 0) > 0,
+    );
   }, [catalog, effectiveCategory, invByKey]);
 
   async function setEquipped(itemKey: string, quantity: number) {
     setBusyKey(itemKey);
-    setError('');
-    const res = await fetch('/api/inventory/equip', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    setError("");
+    const res = await fetch("/api/inventory/equip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ item_key: itemKey, quantity }),
     });
     setBusyKey(null);
     if (!res.ok) {
-      setError(res.status === 400 ? 'Not enough owned, or that exceeds your slot cap.' : 'Could not update loadout — try again.');
+      setError(
+        res.status === 400
+          ? "Not enough owned, or that exceeds your slot cap."
+          : "Could not update loadout — try again.",
+      );
       return;
     }
     await load();
   }
 
-  if (authRequired) {
-    return (
-      <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-        <GameHeader section="build" links={[{ href: '/games/mining', label: 'Back to run' }]} />
-        <main className="mx-auto max-w-xl px-6 py-16 text-center">
-          <p className={`text-sm ${ATOMS.textDim}`}>Your chassis loadout is tied to your account.</p>
-          <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
-            Sign in
-          </a>
-        </main>
-      </div>
-    );
-  }
+  // if (authRequired) {
+  //   return (
+  //     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+  //       <GameHeader section="build" links={[{ href: '/games/mining', label: 'Back to run' }]} />
+  //       <main className="mx-auto max-w-xl px-6 py-16 text-center">
+  //         <p className={`text-sm ${ATOMS.textDim}`}>Your chassis loadout is tied to your account.</p>
+  //         <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
+  //           Sign in
+  //         </a>
+  //       </main>
+  //     </div>
+  //   );
+  // }
 
   const mult = fuelMult(chassis);
   const statRows = [
-    { label: 'Hold per trip', value: `${chassis.hold}u` },
-    { label: 'Fuel capacity', value: chassis.fuelCap.toFixed(0) },
-    { label: 'Dig a fresh cell', value: ((1 / chassis.speed + CFG.DIG_FUEL) * mult).toFixed(2) },
-    { label: 'Drive a tunnel', value: (1 / chassis.speed * CFG.TUNNEL_MULT * mult).toFixed(2) },
-    { label: 'Turn surcharge', value: (CFG.TURN_BASE / chassis.movement * mult).toFixed(2) },
-    { label: 'Fresh digs available', value: `~${Math.floor(chassis.fuelCap / ((1 / chassis.speed + CFG.DIG_FUEL) * mult))}` },
-    { label: 'Sink', value: String(chassis.sinkCap) },
-    { label: 'Ping range', value: `${chassis.sensorRange.toFixed(1)} cells` },
-    { label: 'Fix accuracy', value: `±${chassis.sensorBlur.toFixed(1)}` },
-    { label: 'Ping cost', value: `${chassis.pingFuel.toFixed(1)} fuel` },
-    { label: 'Grade estimate', value: `±${(chassis.analyser / 2).toFixed(1)} tiers` },
+    { label: "Hold per trip", value: `${chassis.hold}u` },
+    { label: "Fuel capacity", value: chassis.fuelCap.toFixed(0) },
+    {
+      label: "Dig a fresh cell",
+      value: ((1 / chassis.speed + CFG.DIG_FUEL) * mult).toFixed(2),
+    },
+    {
+      label: "Drive a tunnel",
+      value: ((1 / chassis.speed) * CFG.TUNNEL_MULT * mult).toFixed(2),
+    },
+    {
+      label: "Turn surcharge",
+      value: ((CFG.TURN_BASE / chassis.movement) * mult).toFixed(2),
+    },
+    {
+      label: "Fresh digs available",
+      value: `~${Math.floor(chassis.fuelCap / ((1 / chassis.speed + CFG.DIG_FUEL) * mult))}`,
+    },
+    { label: "Sink", value: String(chassis.sinkCap) },
+    { label: "Ping range", value: `${chassis.sensorRange.toFixed(1)} cells` },
+    { label: "Fix accuracy", value: `±${chassis.sensorBlur.toFixed(1)}` },
+    { label: "Ping cost", value: `${chassis.pingFuel.toFixed(1)} fuel` },
+    {
+      label: "Grade estimate",
+      value: `±${(chassis.analyser / 2).toFixed(1)} tiers`,
+    },
   ];
 
-  const roomLeftForCategory = (cat: string) => (cat === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft);
+  const roomLeftForCategory = (cat: string) =>
+    cat === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft;
 
   return (
     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-      <GameHeader
+      {/* <GameHeader
         section="build"
         stats={[
-          { label: 'slots', value: `${equippedChassisTotal} / ${slotTotal}` },
-          { label: 'equipment', value: `${equippedEquipmentTotal} / ${equipmentSlotTotal}` },
-          { label: 'balance', value: balance ?? '—' },
+          { label: "slots", value: `${equippedChassisTotal} / ${slotTotal}` },
+          {
+            label: "equipment",
+            value: `${equippedEquipmentTotal} / ${equipmentSlotTotal}`,
+          },
+          { label: "balance", value: balance ?? "—" },
         ]}
         links={[
-          { href: '/games/mining/store', label: 'Mechanic' },
-          { href: '/games/mining/surveyor', label: 'Surveyor' },
-          { href: '/games/mining', label: 'Back to run' },
+          { href: "/games/mining/store", label: "Mechanic" },
+          { href: "/games/mining/surveyor", label: "Surveyor" },
+          { href: "/games/mining", label: "Back to run" },
         ]}
-      />
+      /> */}
 
       <main className="mx-auto max-w-6xl px-6 py-8">
-        {error && <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>}
+        {error && (
+          <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>
+        )}
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_280px]">
           <div>
@@ -196,8 +208,13 @@ export default function BuildPage() {
               value={effectiveCategory}
               onChange={setSelectedCategory}
               options={[
-                { value: FULL_BUILD, label: 'Full build', Icon: FullBuildIcon, count: equippedChassisTotal + equippedEquipmentTotal },
-                ...categories.map(cat => ({
+                {
+                  value: FULL_BUILD,
+                  label: "Full build",
+                  Icon: FullBuildIcon,
+                  count: equippedChassisTotal + equippedEquipmentTotal,
+                },
+                ...categories.map((cat) => ({
                   value: cat,
                   label: categoryLabel(cat),
                   Icon: categoryIcon(cat),
@@ -208,35 +225,52 @@ export default function BuildPage() {
 
             <p className={`mb-4 text-[11px] ${ATOMS.textDim}`}>
               {effectiveCategory === FULL_BUILD
-                ? `${chassisSlotsLeft} chassis / ${equipmentSlotsLeft} equipment slot${equipmentSlotsLeft === 1 ? '' : 's'} free`
+                ? `${chassisSlotsLeft} chassis / ${equipmentSlotsLeft} equipment slot${equipmentSlotsLeft === 1 ? "" : "s"} free`
                 : (() => {
                     const left = roomLeftForCategory(effectiveCategory);
-                    return `${left} slot${left === 1 ? '' : 's'} free`;
+                    return `${left} slot${left === 1 ? "" : "s"} free`;
                   })()}
             </p>
 
             {items.length === 0 && (
               <p className={`text-sm ${ATOMS.textDim}`}>
-                {effectiveCategory === FULL_BUILD
-                  ? 'Nothing fitted yet.'
-                  : <>You don&rsquo;t own anything in this category yet — visit the <a href="/games/mining/store" className={ATOMS.textTeal}>mechanic</a>.</>}
+                {effectiveCategory === FULL_BUILD ? (
+                  "Nothing fitted yet."
+                ) : (
+                  <>
+                    You don&rsquo;t own anything in this category yet — visit
+                    the{" "}
+                    <a href="/games/mining/store" className={ATOMS.textTeal}>
+                      mechanic
+                    </a>
+                    .
+                  </>
+                )}
               </p>
             )}
 
             <div className="space-y-3">
-              {items.map(item => (
+              {items.map((item) => (
                 <EquipCard
                   key={item.item_key}
                   label={item.label}
                   description={item.description}
-                  effects={Object.keys(item.effects).length ? effectsText(item.effects) : null}
+                  effects={
+                    Object.keys(item.effects).length
+                      ? effectsText(item.effects)
+                      : null
+                  }
                   imageSrc={imgSrc(item)}
-                  ownedQuantity={invByKey.get(item.item_key)?.owned_quantity ?? 0}
-                  equippedQuantity={invByKey.get(item.item_key)?.equipped_quantity ?? 0}
+                  ownedQuantity={
+                    invByKey.get(item.item_key)?.owned_quantity ?? 0
+                  }
+                  equippedQuantity={
+                    invByKey.get(item.item_key)?.equipped_quantity ?? 0
+                  }
                   roomLeft={roomLeftForCategory(item.category)}
                   busy={busyKey === item.item_key}
                   accent={accentForCategory(item.category)}
-                  onEquippedChange={next => setEquipped(item.item_key, next)}
+                  onEquippedChange={(next) => setEquipped(item.item_key, next)}
                 />
               ))}
             </div>
@@ -253,6 +287,6 @@ export default function BuildPage() {
 
 function effectsText(effects: Partial<Record<StatKey, number>>): string {
   return Object.entries(effects)
-    .map(([k, v]) => `${(v ?? 0) > 0 ? '+' : ''}${v} ${k}`)
-    .join('  ');
+    .map(([k, v]) => `${(v ?? 0) > 0 ? "+" : ""}${v} ${k}`)
+    .join("  ");
 }

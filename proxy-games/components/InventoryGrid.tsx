@@ -3,7 +3,10 @@
 import { useMemo, useState } from "react";
 import { categoryIcon } from "@/app/games/mining/icons";
 import { InventoryCard } from "@/components/InventoryCard";
-import { categoryOptions, FilterBar } from "@/components/FilterBar";
+import {
+  categoryOptions,
+  FilterBar,
+} from "@/app/games/mining/components/FilterBar";
 import { accentForCategory } from "@/lib/mining-theme";
 
 export interface OwnedItem {

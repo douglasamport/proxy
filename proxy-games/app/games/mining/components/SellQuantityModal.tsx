@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Modal } from "@/components/Modal";
+import { Modal } from "@/app/games/mining/components/Modal";
 import { ATOMS, SURFACE } from "@/lib/mining-theme";
 
 interface SellQuantityModalProps {
@@ -27,11 +27,14 @@ export function SellQuantityModal({
 }: SellQuantityModalProps) {
   const [quantity, setQuantity] = useState(Math.min(1, maxQuantity));
 
-  const clamp = (n: number) => Math.max(1, Math.min(maxQuantity, Math.floor(n) || 1));
+  const clamp = (n: number) =>
+    Math.max(1, Math.min(maxQuantity, Math.floor(n) || 1));
 
   return (
     <Modal>
-      <h2 className={`font-mono text-sm font-bold uppercase tracking-wide ${ATOMS.textPrimary}`}>
+      <h2
+        className={`font-mono text-sm font-bold uppercase tracking-wide ${ATOMS.textPrimary}`}
+      >
         Sell {label}
       </h2>
       <p className={`mt-2 text-[12px] leading-relaxed ${ATOMS.textDim}`}>

@@ -1,7 +1,13 @@
 "use client";
 
-import { ACCENTS, ACCENT_ALIASES, ATOMS, SURFACE, type Accent } from "@/lib/mining-theme";
-import { PlateOverlay } from "@/components/PlateOverlay";
+import {
+  ACCENTS,
+  ACCENT_ALIASES,
+  ATOMS,
+  SURFACE,
+  type Accent,
+} from "@/lib/mining-theme";
+import { PlateOverlay } from "@/app/games/mining/components/PlateOverlay";
 
 type ItemCardProps = {
   label: string;
@@ -65,9 +71,13 @@ export function ItemCard({
       </div>
 
       {/* main card */}
-      <div className={`relative flex overflow-hidden rounded-lg ${SURFACE.card} ${SURFACE.cardShadow}`}>
+      <div
+        className={`relative flex overflow-hidden rounded-lg ${SURFACE.card} ${SURFACE.cardShadow}`}
+      >
         {/* art */}
-        <div className={`relative flex w-[38%] shrink-0 items-center justify-center ${ATOMS.bgRock} p-4`}>
+        <div
+          className={`relative flex w-[38%] shrink-0 items-center justify-center ${ATOMS.bgRock} p-4`}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element -- catalog art */}
           <img
             src={imageSrc}
@@ -79,12 +89,16 @@ export function ItemCard({
         {/* detail */}
         <div className="flex min-w-0 flex-1 flex-col gap-3 p-5">
           <div className="min-w-0">
-            <h3 className={`truncate text-lg font-bold uppercase leading-tight tracking-wide ${ATOMS.textPrimary}`}>
+            <h3
+              className={`truncate text-lg font-bold uppercase leading-tight tracking-wide ${ATOMS.textPrimary}`}
+            >
               {label}
             </h3>
             <p className={`mt-0.5 font-mono text-xl font-bold ${a.text}`}>
               {cost.toLocaleString()}
-              <span className={`ml-1 text-[10px] font-normal uppercase tracking-[.2em] ${ATOMS.textDim}`}>
+              <span
+                className={`ml-1 text-[10px] font-normal uppercase tracking-[.2em] ${ATOMS.textDim}`}
+              >
                 cr
               </span>
             </p>
@@ -93,19 +107,25 @@ export function ItemCard({
           <div className="flex items-start gap-4">
             <div className="min-w-0 flex-1 space-y-2">
               {description && (
-                <p className={`line-clamp-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
+                <p
+                  className={`line-clamp-2 text-[11px] leading-snug ${ATOMS.textDim}`}
+                >
                   {description}
                 </p>
               )}
               {effects && (
-                <p className={`font-mono text-[10px] uppercase tracking-wider ${ATOMS.textMuted}`}>
+                <p
+                  className={`font-mono text-[10px] uppercase tracking-wider ${ATOMS.textMuted}`}
+                >
                   {effects}
                 </p>
               )}
             </div>
 
             {/* status readout — replaces the ring gauge */}
-            <div className={`shrink-0 border-l ${ATOMS.borderLine} pl-4 text-right`}>
+            <div
+              className={`shrink-0 border-l ${ATOMS.borderLine} pl-4 text-right`}
+            >
               <div
                 className={`font-mono text-2xl font-bold leading-none ${owned ? a.text : ATOMS.textPrimary}`}
               >

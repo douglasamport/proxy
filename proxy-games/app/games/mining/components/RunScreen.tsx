@@ -11,8 +11,8 @@ import { ATOMS, GAME, PALETTE, SURFACE, oreColor } from "@/lib/mining-theme";
 // RunField below). Scoped locally to that component's own .mining-root
 // wrapper, not applied to the rest of this now-Tailwind page.
 import "../mining.css";
-import { Gauge } from "@/components/Gauge";
-import { Swatch, KeyRow } from "@/components/Swatch";
+import { Gauge } from "@/app/games/mining/components/Gauge";
+import { Swatch, KeyRow } from "@/app/games/mining/components/Swatch";
 
 const ARROWS: Record<string, string> = {
   E: "→",
@@ -51,12 +51,40 @@ export function StatusPanel({ run }: { run: PublicRunView }) {
       <div className={`rounded-lg ${SURFACE.card} p-4`}>
         <div className={SURFACE.label}>Proxy</div>
         <div className="mt-3">
-          <Gauge tone="fuel" label="Fuel" value={run.fuel.toFixed(1)} max={ch.fuelCap} suffix={` / ${ch.fuelCap}`} />
-          <Gauge tone="sink" label="Sink" value={run.sink} max={ch.sinkCap} suffix={` / ${ch.sinkCap}`} />
-          <Gauge tone="hold" label="Hold" value={held} max={ch.hold} suffix={` / ${ch.hold}u`} />
-          <Gauge tone="energy" label="Claim left" value={run.energy} max={run.energyStart} suffix={` / ${run.energyStart}u`} />
+          <Gauge
+            tone="fuel"
+            label="Fuel"
+            value={run.fuel.toFixed(1)}
+            max={ch.fuelCap}
+            suffix={` / ${ch.fuelCap}`}
+          />
+          <Gauge
+            tone="sink"
+            label="Sink"
+            value={run.sink}
+            max={ch.sinkCap}
+            suffix={` / ${ch.sinkCap}`}
+          />
+          <Gauge
+            tone="hold"
+            label="Hold"
+            value={held}
+            max={ch.hold}
+            suffix={` / ${ch.hold}u`}
+          />
+          <Gauge
+            tone="energy"
+            label="Claim left"
+            value={run.energy}
+            max={run.energyStart}
+            suffix={` / ${run.energyStart}u`}
+          />
         </div>
-        {thin && <div className={`-mt-1 mb-2 text-[11px] ${ATOMS.textDanger}`}>Fuel is thin — you may not make it back</div>}
+        {thin && (
+          <div className={`-mt-1 mb-2 text-[11px] ${ATOMS.textDanger}`}>
+            Fuel is thin — you may not make it back
+          </div>
+        )}
       </div>
 
       <div className={`rounded-lg ${SURFACE.card} p-4`}>
@@ -65,7 +93,9 @@ export function StatusPanel({ run }: { run: PublicRunView }) {
           {posRows.map(([label, value, danger]) => (
             <div key={label} className="flex justify-between text-[11px]">
               <span className={ATOMS.textDim}>{label}</span>
-              <b className={danger ? ATOMS.textDanger : ATOMS.textPrimary}>{value}</b>
+              <b className={danger ? ATOMS.textDanger : ATOMS.textPrimary}>
+                {value}
+              </b>
             </div>
           ))}
         </div>
@@ -74,9 +104,12 @@ export function StatusPanel({ run }: { run: PublicRunView }) {
       <div className={`rounded-lg ${SURFACE.card} p-4`}>
         <div className={SURFACE.label}>Grade key</div>
         <div className="mt-3 space-y-1">
-          {[1, 2, 3, 4].map(t => (
+          {[1, 2, 3, 4].map((t) => (
             <div key={t} className="flex justify-between text-[11px]">
-              <span className={ATOMS.textDim}><Swatch bg={GAME.grade[t] ?? PALETTE.grade1} />grade {t}</span>
+              <span className={ATOMS.textDim}>
+                <Swatch bg={GAME.grade[t] ?? PALETTE.grade1} />
+                grade {t}
+              </span>
               <b className={ATOMS.textPrimary}>{CFG.GRADE_VALUE[t]} / unit</b>
             </div>
           ))}
@@ -86,14 +119,48 @@ export function StatusPanel({ run }: { run: PublicRunView }) {
       <div className={`rounded-lg ${SURFACE.card} p-4`}>
         <div className={SURFACE.label}>Field key</div>
         <div className="mt-3">
-          <KeyRow><Swatch bg={PALETTE.panel} border={PALETTE.line} />unbroken rock</KeyRow>
-          <KeyRow><Swatch bg={GAME.tunnel} border={GAME.tunnelEdge} />tunnel — cheap to re-cross</KeyRow>
-          <KeyRow><Swatch bg={GAME.cavern} border={GAME.cavernEdge} />cavern — open ground, free to enter</KeyRow>
-          <KeyRow><Swatch bg={GAME.seam} border={GAME.seamEdge} />hard seam — cannot be cut</KeyRow>
-          <KeyRow><Swatch bg={PALETTE.panel} border={PALETTE.line} color={PALETTE.danger} glyph="3" />hazard, sink cost on first cut</KeyRow>
-          <KeyRow><Swatch bg={PALETTE.panel} border={PALETTE.line} color={PALETTE.gas} glyph="8" />gas pocket, far worse</KeyRow>
-          <KeyRow><Swatch bg="rgba(84,198,220,.2)" border="rgba(84,198,220,.6)" />sensor contact — fuzzy until triangulated</KeyRow>
-          <KeyRow><Swatch bg="rgba(140,160,180,.15)" border="rgba(140,160,180,.7)" />survey contact — no fix yet</KeyRow>
+          <KeyRow>
+            <Swatch bg={PALETTE.panel} border={PALETTE.line} />
+            unbroken rock
+          </KeyRow>
+          <KeyRow>
+            <Swatch bg={GAME.tunnel} border={GAME.tunnelEdge} />
+            tunnel — cheap to re-cross
+          </KeyRow>
+          <KeyRow>
+            <Swatch bg={GAME.cavern} border={GAME.cavernEdge} />
+            cavern — open ground, free to enter
+          </KeyRow>
+          <KeyRow>
+            <Swatch bg={GAME.seam} border={GAME.seamEdge} />
+            hard seam — cannot be cut
+          </KeyRow>
+          <KeyRow>
+            <Swatch
+              bg={PALETTE.panel}
+              border={PALETTE.line}
+              color={PALETTE.danger}
+              glyph="3"
+            />
+            hazard, sink cost on first cut
+          </KeyRow>
+          <KeyRow>
+            <Swatch
+              bg={PALETTE.panel}
+              border={PALETTE.line}
+              color={PALETTE.gas}
+              glyph="8"
+            />
+            gas pocket, far worse
+          </KeyRow>
+          <KeyRow>
+            <Swatch bg="rgba(84,198,220,.2)" border="rgba(84,198,220,.6)" />
+            sensor contact — fuzzy until triangulated
+          </KeyRow>
+          <KeyRow>
+            <Swatch bg="rgba(140,160,180,.15)" border="rgba(140,160,180,.7)" />
+            survey contact — no fix yet
+          </KeyRow>
         </div>
       </div>
     </div>
@@ -276,8 +343,18 @@ interface RunControlsProps {
   onScanLine: () => void;
 }
 
-function ControlButton({ children, disabled, warn, onClick, title }: {
-  children: React.ReactNode; disabled: boolean; warn?: boolean; onClick: () => void; title?: string;
+function ControlButton({
+  children,
+  disabled,
+  warn,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode;
+  disabled: boolean;
+  warn?: boolean;
+  onClick: () => void;
+  title?: string;
 }) {
   return (
     <button
@@ -331,10 +408,16 @@ export function RunControls({
           Extract {here && here.grade ? `(${here.units}u g${here.grade})` : ""}
         </ControlButton>
         <ControlButton disabled={!canPing} onClick={onPing}>
-          {cd ? `Sensors ${cd}` : `Ping (${run.chassis.pingFuel.toFixed(1)} fuel)`}
+          {cd
+            ? `Sensors ${cd}`
+            : `Ping (${run.chassis.pingFuel.toFixed(1)} fuel)`}
         </ControlButton>
         {hasSiphon && (
-          <ControlButton disabled={!canSiphon} onClick={onSiphon} title="Burns carried ore for fuel. Consumed on use.">
+          <ControlButton
+            disabled={!canSiphon}
+            onClick={onSiphon}
+            title="Burns carried ore for fuel. Consumed on use."
+          >
             Siphon ore
           </ControlButton>
         )}
@@ -368,21 +451,35 @@ export function RunLedger({ run }: { run: PublicRunView }) {
   }, [run.log.length]);
 
   const rows = run.log.slice(-160);
-  const tone = (k: string) => (k === "ex" ? ATOMS.textTeal : k === "bad" ? ATOMS.textDanger : k === "good" ? ATOMS.textOk : ATOMS.textDim);
+  const tone = (k: string) =>
+    k === "ex"
+      ? ATOMS.textTeal
+      : k === "bad"
+        ? ATOMS.textDanger
+        : k === "good"
+          ? ATOMS.textOk
+          : ATOMS.textDim;
 
   return (
-    <div ref={ref} className={`h-full overflow-y-auto rounded-lg ${SURFACE.card} p-2 font-mono text-[11px]`}>
+    <div
+      ref={ref}
+      className={`h-full overflow-y-auto rounded-lg ${SURFACE.card} p-2 font-mono text-[11px]`}
+    >
       {rows.length === 0 ? (
         <div className={`flex gap-2 px-2 py-1 ${ATOMS.textDimmer}`}>
           <span className="w-6 text-right">—</span>
           <span>no moves yet</span>
         </div>
       ) : (
-        rows.map(l => (
+        rows.map((l) => (
           <div key={l.n} className="flex gap-2 px-2 py-1">
-            <span className={`w-6 shrink-0 text-right ${ATOMS.textDimmer}`}>{l.n}</span>
+            <span className={`w-6 shrink-0 text-right ${ATOMS.textDimmer}`}>
+              {l.n}
+            </span>
             <span className={`flex-1 ${tone(l.k)}`}>{l.t}</span>
-            <span className={`shrink-0 ${ATOMS.textDimmer}`}>{l.c ? `-${l.c.toFixed(2)}` : ""}</span>
+            <span className={`shrink-0 ${ATOMS.textDimmer}`}>
+              {l.c ? `-${l.c.toFixed(2)}` : ""}
+            </span>
           </div>
         ))
       )}
