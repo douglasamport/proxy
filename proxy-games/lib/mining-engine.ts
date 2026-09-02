@@ -48,7 +48,11 @@ export interface Point {
 
 // Which mineral, not how good this particular pocket of it is — that's
 // `grade` below. See build-spec-ore-progression.md, Stage 1.
-export type OreTypeKey = "copper";
+export type OreTypeKey =
+  | "copper" | "zinc" | "iron"
+  | "silver" | "gold" | "platinum"
+  | "silica" | "germanium" | "cadmium"
+  | "neodymium" | "yttrium" | "lanthanum" | "tantalum";
 
 export interface OreType {
   key: OreTypeKey;
@@ -60,20 +64,29 @@ export interface OreType {
   adds_map_size: number;
 }
 
-// Only copper is unlocked to start. grade_values match the engine's
-// pre-existing GRADE_VALUE curve exactly, not the taxonomy doc's 1/2/8/20
-// spread — that spread is a target for a later balance pass, and Stage 1 is
-// data-only: identical gameplay is the acceptance bar.
+// Full taxonomy from Stage 1. Copper's grade_values stay the engine's
+// pre-existing GRADE_VALUE curve, not the taxonomy doc's 1/2/8/20 spread —
+// that was Stage 1's deliberate "identical gameplay" call, since copper is
+// the only ore that ever existed before Stage 6. Every other ore is
+// brand-new data with no legacy behaviour to preserve, so it uses the
+// taxonomy's numbers directly. depth_gate is the per-tier table from Stage
+// 1 ("Depth gates"); adds_map_size is 2 for every non-rare mineral except
+// copper (already unlocked at start, contributes no bonus) and 0 for rare
+// earth — see the "Map scaling" table, which this reproduces exactly.
 export const ORE_TYPES: Record<OreTypeKey, OreType> = {
-  copper: {
-    key: "copper",
-    label: "Copper",
-    tier: 1,
-    grade_values: [0, 1, 3, 8, 20],
-    value_multiplier: 1,
-    depth_gate: 0,
-    adds_map_size: 0,
-  },
+  copper: { key: "copper", label: "Copper", tier: 1, grade_values: [0, 1, 3, 8, 20], value_multiplier: 1, depth_gate: 0, adds_map_size: 0 },
+  zinc: { key: "zinc", label: "Zinc", tier: 1, grade_values: [0, 1, 2, 8, 20], value_multiplier: 1.5, depth_gate: 0, adds_map_size: 2 },
+  iron: { key: "iron", label: "Iron", tier: 1, grade_values: [0, 1, 2, 8, 20], value_multiplier: 2, depth_gate: 0, adds_map_size: 2 },
+  silver: { key: "silver", label: "Silver", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 5, depth_gate: 0.35, adds_map_size: 2 },
+  gold: { key: "gold", label: "Gold", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 8, depth_gate: 0.35, adds_map_size: 2 },
+  platinum: { key: "platinum", label: "Platinum", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 12, depth_gate: 0.35, adds_map_size: 2 },
+  silica: { key: "silica", label: "Silica", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 20, depth_gate: 0.55, adds_map_size: 2 },
+  germanium: { key: "germanium", label: "Germanium", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 28, depth_gate: 0.55, adds_map_size: 2 },
+  cadmium: { key: "cadmium", label: "Cadmium", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 35, depth_gate: 0.55, adds_map_size: 2 },
+  neodymium: { key: "neodymium", label: "Neodymium", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 60, depth_gate: 0.72, adds_map_size: 0 },
+  yttrium: { key: "yttrium", label: "Yttrium", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 80, depth_gate: 0.72, adds_map_size: 0 },
+  lanthanum: { key: "lanthanum", label: "Lanthanum", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 100, depth_gate: 0.72, adds_map_size: 0 },
+  tantalum: { key: "tantalum", label: "Tantalum", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 130, depth_gate: 0.72, adds_map_size: 0 },
 };
 
 export function oreGradeValue(oreType: OreTypeKey, grade: number): number {
@@ -83,6 +96,7 @@ export function oreGradeValue(oreType: OreTypeKey, grade: number): number {
 
 export interface Pocket extends Point {
   grade: number;
+  oreType: OreTypeKey;
 }
 
 export interface Cell {
@@ -152,6 +166,13 @@ export interface SurveyReport {
 export interface RunState {
   seed: number;
   chassis: Chassis;
+  // Snapshotted at creation (see createRun) so a license bought mid-run
+  // never desyncs a field that's already been generated — anything that
+  // regenerates this same seed later (runAI, for the autopilot comparison)
+  // must use these exact values, not the player's current unlock state.
+  w: number;
+  h: number;
+  unlockedOreTypes: OreTypeKey[];
   cells: Cell[];
   base: Point;
   x: number;
@@ -390,8 +411,20 @@ export const inBounds = (x: number, y: number) =>
 // The block is the same size whatever you claim. How much ore it holds varies by
 // seed — which is the whole point of surveying before you decide how much of your
 // day to commit to it.
-export function fieldDims(): { W: number; H: number } {
-  return { W: CFG.BLOCK_W, H: CFG.BLOCK_H };
+//
+// Map size DOES grow with unlocked minerals, per Stage 6 of
+// build-spec-ore-progression.md — every unlocked mineral adds its
+// adds_map_size (2 for non-rare, 0 for copper and rare earth) to both
+// dimensions. Reproduces the spec's map-scaling table exactly.
+export function fieldDims(unlockedOreTypes: OreTypeKey[]): {
+  W: number;
+  H: number;
+} {
+  const bonus = unlockedOreTypes.reduce(
+    (n, k) => n + (ORE_TYPES[k]?.adds_map_size ?? 0),
+    0,
+  );
+  return { W: CFG.BLOCK_W + bonus, H: CFG.BLOCK_H + bonus };
 }
 
 function scatter(
@@ -411,7 +444,33 @@ function scatter(
   return pts;
 }
 
-export function generateField(seed: number): {
+// One ore type per pocket, chosen from whatever's unlocked and eligible at
+// this depth (depth_gate <= d), weighted by 1/value_multiplier so rarer ore
+// stays genuinely rare rather than merely deep — see Stage 6 of
+// build-spec-ore-progression.md. Falls back to copper if somehow nothing
+// unlocked is eligible (shouldn't happen: copper's depth_gate is 0 and it's
+// always in the unlocked set).
+function pickOreType(
+  unlocked: OreTypeKey[],
+  depth: number,
+  rng: () => number,
+): OreTypeKey {
+  const eligible = unlocked.filter((k) => depth >= ORE_TYPES[k].depth_gate);
+  if (eligible.length === 0) return "copper";
+  const weights = eligible.map((k) => 1 / ORE_TYPES[k].value_multiplier);
+  const total = weights.reduce((a, b) => a + b, 0);
+  let roll = rng() * total;
+  for (let i = 0; i < eligible.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return eligible[i];
+  }
+  return eligible[eligible.length - 1];
+}
+
+export function generateField(
+  seed: number,
+  unlockedOreTypes: OreTypeKey[],
+): {
   cells: Cell[];
   base: Point;
   pockets: Pocket[];
@@ -434,7 +493,8 @@ export function generateField(seed: number): {
     const roll = rng() + d * 0.5;
     let grade = roll < 0.4 ? 1 : roll < 0.7 ? 2 : roll < 0.92 ? 3 : 4;
     while (grade > 1 && d < CFG.TIER_GATE[grade]) grade--;
-    return { ...p, grade };
+    const oreType = pickOreType(unlockedOreTypes, d, rng);
+    return { ...p, grade, oreType };
   });
   const seams = scatter(rng, per(CFG.SEAM_CLUSTERS_PER_100), base, 2.2);
   const gas = scatter(rng, per(CFG.GAS_PER_100), base, 3.0);
@@ -467,7 +527,7 @@ export function generateField(seed: number): {
         x,
         y,
         grade: 0,
-        oreType: "copper", // only ore type unlocked until Stage 5 sells licences
+        oreType: "copper", // default; overwritten below for pocket ore, stray ore stays copper
         units: 0,
         hazard: 0,
         gas: false,
@@ -507,6 +567,7 @@ export function generateField(seed: number): {
             1,
             pk.p.grade - (pk.d > CFG.DEPOSIT_SPREAD * 0.65 ? 1 : 0),
           );
+          c.oreType = pk.p.oreType;
           c.units =
             CFG.ORE_UNITS_MIN +
             Math.floor(rng() * (CFG.ORE_UNITS_MAX - CFG.ORE_UNITS_MIN + 1));
@@ -539,12 +600,13 @@ export function generateField(seed: number): {
 export function surveyReport(
   seed: number,
   tier: SurveyTier,
+  unlockedOreTypes: OreTypeKey[],
 ): SurveyReport | null {
   if (tier === "none") return null;
-  const dims = fieldDims();
+  const dims = fieldDims(unlockedOreTypes);
   CFG.W = dims.W;
   CFG.H = dims.H;
-  const f = generateField(seed);
+  const f = generateField(seed, unlockedOreTypes);
   const tmp = { cells: f.cells, base: f.base } as RunState;
   const groups = oreClusters(tmp);
   const maxD = Math.hypot(CFG.W - 1, CFG.H - 1);
@@ -623,15 +685,19 @@ export function createRun(
   seed: number,
   chassis: Chassis,
   energy?: number,
+  unlockedOreTypes: OreTypeKey[] = ["copper"],
 ): RunState {
-  const dims = fieldDims();
+  const dims = fieldDims(unlockedOreTypes);
   CFG.W = dims.W;
   CFG.H = dims.H; // prototype: field dims are global per run
-  const f = generateField(seed);
+  const f = generateField(seed, unlockedOreTypes);
   const claim = energy ?? CFG.ENERGY;
   return {
     seed,
     chassis,
+    w: dims.W,
+    h: dims.H,
+    unlockedOreTypes,
     cells: f.cells,
     base: f.base,
     x: f.base.x,
@@ -1225,8 +1291,9 @@ export function runAI(
   seed: number,
   chassis: Chassis,
   energy?: number,
+  unlockedOreTypes: OreTypeKey[] = ["copper"],
 ): RunState {
-  let s = createRun(seed, chassis, energy);
+  let s = createRun(seed, chassis, energy, unlockedOreTypes);
   s = applySurvey(s, CFG.AI_SURVEY, true);
   s = applyPing(s).s;
   // A committed goal. Re-deciding every step makes the baseline oscillate between

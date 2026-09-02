@@ -180,7 +180,8 @@ export default function BuildPage() {
           { label: 'balance', value: balance ?? '—' },
         ]}
         links={[
-          { href: '/games/mining/store', label: 'Store' },
+          { href: '/games/mining/store', label: 'Mechanic' },
+          { href: '/games/mining/surveyor', label: 'Surveyor' },
           { href: '/games/mining', label: 'Back to run' },
         ]}
       />
@@ -218,7 +219,7 @@ export default function BuildPage() {
               <p className={`text-sm ${ATOMS.textDim}`}>
                 {effectiveCategory === FULL_BUILD
                   ? 'Nothing fitted yet.'
-                  : <>You don&rsquo;t own anything in this category yet — visit the <a href="/games/mining/store" className={ATOMS.textTeal}>store</a>.</>}
+                  : <>You don&rsquo;t own anything in this category yet — visit the <a href="/games/mining/store" className={ATOMS.textTeal}>mechanic</a>.</>}
               </p>
             )}
 

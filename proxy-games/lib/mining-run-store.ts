@@ -46,9 +46,27 @@ function serializeState(s: RunState): string {
   return JSON.stringify({ ...rest, seen: Array.from(seen) });
 }
 
+// Map size now varies per run (see Stage 6 of build-spec-ore-progression.md
+// — field dims depend on the player's unlocked minerals at launch time).
+// generateField/idx/inBounds/etc all read the shared CFG.W/CFG.H global
+// rather than taking dims as a parameter (see mining-engine.ts), so every
+// engine call against a *loaded* run has to re-sync that global from the
+// state it just loaded, the same way createRun() sets it at creation. Safe
+// only because this sync and the engine call that follows always happen in
+// the same synchronous stretch, with no `await` between them — Node never
+// interleaves another request's code into that gap.
 function deserializeState(raw: unknown): RunState {
   const parsed = raw as Omit<RunState, "seen"> & { seen: number[] };
-  return { ...parsed, seen: new Set(parsed.seen) } as RunState;
+  const state = { ...parsed, seen: new Set(parsed.seen) } as RunState;
+  // Rows saved before Stage 6 predate these fields — every field that ever
+  // existed pre-Stage-6 was generated at exactly the base block size with
+  // only copper, so that's the correct fallback, not an arbitrary default.
+  state.w ??= CFG.BLOCK_W;
+  state.h ??= CFG.BLOCK_H;
+  state.unlockedOreTypes ??= ["copper"];
+  CFG.W = state.w;
+  CFG.H = state.h;
+  return state;
 }
 
 export async function loadFittingRun(
@@ -99,6 +117,7 @@ export interface PublicCell {
   y: number;
   known: boolean;
   grade: number;
+  oreType: OreTypeKey;
   units: number;
   hazard: number;
   gas: boolean;
@@ -119,6 +138,7 @@ function redactCells(cells: Cell[]): PublicCell[] {
           y: c.y,
           known: true,
           grade: c.grade,
+          oreType: c.oreType,
           units: c.units,
           hazard: c.hazard,
           gas: c.gas,
@@ -131,6 +151,7 @@ function redactCells(cells: Cell[]): PublicCell[] {
           y: c.y,
           known: false,
           grade: 0,
+          oreType: "copper", // never rendered — grade 0 means "no ore"
           units: 0,
           hazard: 0,
           gas: false,
@@ -143,6 +164,8 @@ function redactCells(cells: Cell[]): PublicCell[] {
 
 export interface PublicRunView {
   runId: string;
+  w: number;
+  h: number;
   x: number;
   y: number;
   dir: DirKey | null;
@@ -176,6 +199,8 @@ export interface PublicRunView {
 export function toPublicView(runId: string, s: RunState): PublicRunView {
   return {
     runId,
+    w: s.w,
+    h: s.h,
     x: s.x,
     y: s.y,
     dir: s.dir,
@@ -243,7 +268,9 @@ export async function settleRun(
   choice: SettleChoice = "credits",
 ): Promise<{ you: ScoreResult; ai: ScoreResult }> {
   const you = score(state);
-  const ai = score(runAI(state.seed, state.chassis, state.energyStart));
+  const ai = score(
+    runAI(state.seed, state.chassis, state.energyStart, state.unlockedOreTypes),
+  );
 
   const runId = randomUUID();
   const statements = [

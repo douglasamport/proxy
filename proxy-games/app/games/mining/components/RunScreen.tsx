@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { CFG, DIRS, idx, inBounds } from "@/lib/mining-engine";
+import { CFG, DIRS } from "@/lib/mining-engine";
 import type { DirKey } from "@/lib/mining-engine";
 import type { PublicRunView } from "@/lib/mining-run-store";
 import { atBase, heldUnits } from "../view";
-import { ATOMS, GAME, PALETTE, SURFACE } from "@/lib/mining-theme";
+import { ATOMS, GAME, PALETTE, SURFACE, oreColor } from "@/lib/mining-theme";
 // Only RunField still needs this — the field grid is the one piece kept on
 // mining.css (a dense per-cell HUD, not a card; see the comment on
 // RunField below). Scoped locally to that component's own .mining-root
@@ -110,7 +110,14 @@ export function RunField({
   run: PublicRunView;
   onMove: (dir: DirKey) => void;
 }) {
-  const px = Math.max(20, Math.min(38, Math.floor(620 / CFG.W)));
+  // Field dims are per-run now (Stage 6 — map size depends on unlocked
+  // minerals), so grid layout and cell indexing come from `run.w`/`run.h`,
+  // not the module-level CFG.W/H (a shared global that's only ever correct
+  // for whichever run last set it server-side — meaningless on the client).
+  const idxOf = (x: number, y: number) => y * run.w + x;
+  const inB = (x: number, y: number) =>
+    x >= 0 && y >= 0 && x < run.w && y < run.h;
+  const px = Math.max(20, Math.min(38, Math.floor(620 / run.w)));
   const fs = Math.max(9, Math.round(px * 0.32));
 
   const reach = new Set<number>();
@@ -118,14 +125,14 @@ export function RunField({
     for (const k of Object.keys(DIRS) as DirKey[]) {
       const nx = run.x + DIRS[k][0],
         ny = run.y + DIRS[k][1];
-      if (inBounds(nx, ny)) reach.add(idx(nx, ny));
+      if (inB(nx, ny)) reach.add(idxOf(nx, ny));
     }
   }
 
   const cells = [];
-  for (let y = 0; y < CFG.H; y++) {
-    for (let x = 0; x < CFG.W; x++) {
-      const c = run.cells[idx(x, y)];
+  for (let y = 0; y < run.h; y++) {
+    for (let x = 0; x < run.w; x++) {
+      const c = run.cells[idxOf(x, y)];
       const isBase = x === run.base.x && y === run.base.y;
       const known = c.known;
       let cls = "cell";
@@ -148,8 +155,14 @@ export function RunField({
       // cleared on entry, only its one-time damage is).
       if (known && c.hazard > 0 && !isBase)
         cls += ` hazard${c.gas ? " gas" : ""}`;
-      const isReach = reach.has(idx(x, y));
+      const isReach = reach.has(idxOf(x, y));
       if (isReach) cls += " reach";
+      // Ore's own base colour, by mineral — the `.t{grade}` class above is
+      // still there for other cell states, but this inline background wins
+      // for anything with ore on it, distinguishing what used to be one
+      // amber ramp for every ore type into 13 (see lib/mining-theme.ts).
+      const cellStyle: React.CSSProperties | undefined =
+        c.grade > 0 ? { background: oreColor(c.oreType, c.grade) } : undefined;
       const text = isBase
         ? "BASE"
         : !known
@@ -169,6 +182,7 @@ export function RunField({
         <div
           key={`${x}:${y}`}
           className={cls}
+          style={cellStyle}
           tabIndex={isReach ? 0 : undefined}
           onClick={isReach ? () => onMove(dir) : undefined}
           onKeyDown={
@@ -203,7 +217,7 @@ export function RunField({
   }
 
   const fieldStyle = {
-    gridTemplateColumns: `repeat(${CFG.W}, ${px}px)`,
+    gridTemplateColumns: `repeat(${run.w}, ${px}px)`,
     "--px": `${px}px`,
     "--fs": `${fs}px`,
   } as React.CSSProperties;
@@ -291,7 +305,8 @@ export function RunControls({
   onSiphon,
   onScanLine,
 }: RunControlsProps) {
-  const here = run.status === "active" ? run.cells[idx(run.x, run.y)] : null;
+  const here =
+    run.status === "active" ? run.cells[run.y * run.w + run.x] : null;
   // A fully-extracted cell always has grade reset to 0 in the same step it's
   // marked spent (see applyExtract in the engine), so grade > 0 alone is
   // already a complete "can still cut here" check.

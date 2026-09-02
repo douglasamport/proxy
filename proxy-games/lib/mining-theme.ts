@@ -1,3 +1,5 @@
+import type { OreTypeKey } from "./mining-engine";
+
 /**
  * Single source of truth for colour across proxy-games.
  *
@@ -148,6 +150,51 @@ export const GAME = {
   gas: PALETTE.gas,
   ok: PALETTE.ok,
 } as const;
+
+/* ------------------------------------------------------------- ore colours */
+
+// One base hue per ore type, ramped dull-to-bright across grade 1-4 (lighter
+// = better — same convention the grade1-4 ramp above already uses) so the
+// field grid reads by mineral, not just by grade. Copper keeps its exact
+// original PALETTE.gradeN hex values (nothing about existing gameplay
+// should shift a single pixel); every other ore is generated from its own
+// hue with the same saturation/lightness steps copper's ramp already uses,
+// so all 13 read as one consistent family. Hues sit roughly 21° apart and
+// stay clear of `danger` (~3°) and `gas` (~304°), so a hazard badge or gas
+// pocket is never confusable with an ore's own tile colour.
+function oreRamp(hue: number): readonly [string, string, string, string] {
+  return [
+    `hsl(${hue}, 24%, 40%)`,
+    `hsl(${hue}, 44%, 50%)`,
+    `hsl(${hue}, 62%, 58%)`,
+    `hsl(${hue}, 78%, 78%)`,
+  ] as const;
+}
+
+export const ORE_GRADE_COLORS: Record<
+  OreTypeKey,
+  readonly [string, string, string, string]
+> = {
+  iron: oreRamp(20),
+  copper: [PALETTE.grade1, PALETTE.grade2, PALETTE.grade3, PALETTE.grade4],
+  gold: oreRamp(62),
+  cadmium: oreRamp(83),
+  germanium: oreRamp(104),
+  yttrium: oreRamp(125),
+  lanthanum: oreRamp(146),
+  silica: oreRamp(166),
+  zinc: oreRamp(187),
+  silver: oreRamp(208),
+  platinum: oreRamp(229),
+  tantalum: oreRamp(250),
+  neodymium: oreRamp(270),
+};
+
+// Cell.grade is 1-4 (0 means "no ore", never passed here).
+export function oreColor(oreType: OreTypeKey, grade: number): string {
+  const ramp = ORE_GRADE_COLORS[oreType] ?? ORE_GRADE_COLORS.copper;
+  return ramp[Math.min(3, Math.max(0, grade - 1))];
+}
 
 /* --------------------------------------------------------------- 4. surfaces */
 

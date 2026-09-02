@@ -57,6 +57,8 @@ interface EndResult {
   ai: ScoreResult;
 }
 
+type FieldDims = { W: number; H: number };
+
 type CurrentRunPayload =
   | {
       phase: "fitting";
@@ -64,6 +66,7 @@ type CurrentRunPayload =
       survey: SurveyTier;
       report: SurveyReport | null;
       balance: string;
+      dims: FieldDims;
     }
   | { phase: "active"; runId: string; view: PublicRunView; balance: string };
 
@@ -90,6 +93,7 @@ export default function MiningPage() {
   const [claim, setClaim] = useState(CFG.ENERGY);
   const [survey, setSurvey] = useState<SurveyTier>("none");
   const [surveyReport, setSurveyReport] = useState<SurveyReport | null>(null);
+  const [dims, setDims] = useState<FieldDims>({ W: CFG.BLOCK_W, H: CFG.BLOCK_H });
   const [balance, setBalance] = useState<string | null>(null);
   const [pendingSurveyTier, setPendingSurveyTier] = useState<
     "basic" | "full" | null
@@ -109,7 +113,7 @@ export default function MiningPage() {
   // Plain page load/navigation uses resumeCurrentRun() below instead, which
   // doesn't discard anything.
   const assignField = useCallback(async (seedOverride?: number) => {
-    const r = await postJSON<{ runId: string; balance: string }>(
+    const r = await postJSON<{ runId: string; balance: string; dims: FieldDims }>(
       "/api/runs/field",
       {
         game: "mining",
@@ -123,6 +127,7 @@ export default function MiningPage() {
     setAuthRequired(false);
     setRunId(r.data.runId);
     setBalance(r.data.balance);
+    setDims(r.data.dims);
     setSurvey("none");
     setSurveyReport(null);
     setFitError("");
@@ -158,6 +163,7 @@ export default function MiningPage() {
       setView(null);
       setSurvey(r.data.survey);
       setSurveyReport(r.data.report);
+      setDims(r.data.dims);
     }
   }, []);
 
@@ -410,6 +416,7 @@ export default function MiningPage() {
               report={surveyReport}
               balance={balance}
               runId={runId}
+              dims={dims}
               onClaimChange={setClaim}
               onRequestSurvey={requestSurveyPurchase}
               onLaunch={handleLaunch}

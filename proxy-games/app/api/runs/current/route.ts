@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/db/client';
 import { currentPlayer } from '@/lib/auth';
 import { assignNewField, loadActiveRun, toPublicView } from '@/lib/mining-run-store';
-import { surveyReport } from '@/lib/mining-engine';
+import { loadUnlockedOreTypes } from '@/lib/mining-inventory';
+import { fieldDims, surveyReport } from '@/lib/mining-engine';
 import type { SurveyTier } from '@/lib/mining-engine';
 
 // POST { game } -> the player's current in-progress run for this game,
@@ -32,23 +33,35 @@ export async function POST(req: NextRequest) {
 
   if (!row) {
     const seed = Math.floor(Math.random() * 9000) + 1000;
-    const { runId, balance } = await assignNewField(player.id, game, seed);
-    return NextResponse.json({ phase: 'fitting', runId, survey: 'none', report: null, balance });
+    const [{ runId, balance }, unlockedOreTypes] = await Promise.all([
+      assignNewField(player.id, game, seed),
+      loadUnlockedOreTypes(player.id),
+    ]);
+    const dims = fieldDims(unlockedOreTypes);
+    return NextResponse.json({ phase: 'fitting', runId, survey: 'none', report: null, balance, dims });
   }
 
   if (row.phase === 'fitting') {
-    const [{ balance }] = await sql`select balance from players where id = ${player.id}`;
+    const [[{ balance }], unlockedOreTypes] = await Promise.all([
+      sql`select balance from players where id = ${player.id}`,
+      loadUnlockedOreTypes(player.id),
+    ]);
     const tier = row.survey as SurveyTier;
-    const report = tier === 'none' ? null : surveyReport(row.seed, tier);
-    return NextResponse.json({ phase: 'fitting', runId: row.id, survey: tier, report, balance });
+    const report = tier === 'none' ? null : surveyReport(row.seed, tier, unlockedOreTypes);
+    const dims = fieldDims(unlockedOreTypes);
+    return NextResponse.json({ phase: 'fitting', runId: row.id, survey: tier, report, balance, dims });
   }
 
   const active = await loadActiveRun(row.id, player.id);
   if (!active) {
     // The row vanished between the two reads (rare) — fall back to a fresh field.
     const seed = Math.floor(Math.random() * 9000) + 1000;
-    const { runId, balance } = await assignNewField(player.id, game, seed);
-    return NextResponse.json({ phase: 'fitting', runId, survey: 'none', report: null, balance });
+    const [{ runId, balance }, unlockedOreTypes] = await Promise.all([
+      assignNewField(player.id, game, seed),
+      loadUnlockedOreTypes(player.id),
+    ]);
+    const dims = fieldDims(unlockedOreTypes);
+    return NextResponse.json({ phase: 'fitting', runId, survey: 'none', report: null, balance, dims });
   }
   const [{ balance }] = await sql`select balance from players where id = ${player.id}`;
   return NextResponse.json({ phase: 'active', runId: row.id, view: toPublicView(row.id, active.state), balance });

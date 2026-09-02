@@ -6,14 +6,25 @@
 // section were both invisible in one-off runs).
 //
 // Pure — imports only the engine, no DB, no server. Run directly with Node
-// (no build step, no ts-node): `node scripts/autopilot-sweep.mts [count] [claim]`
+// (no build step, no ts-node): `node scripts/autopilot-sweep.mts [count] [claim] [level]`
 //
-//   node scripts/autopilot-sweep.mts          # 300 seeds, 35E claim
-//   node scripts/autopilot-sweep.mts 1000     # 1000 seeds, 35E claim
-//   node scripts/autopilot-sweep.mts 300 50   # 300 seeds, 50E claim
+//   node scripts/autopilot-sweep.mts                       # 300 seeds, 35E claim, all 5 unlock levels
+//   node scripts/autopilot-sweep.mts 1000                  # 1000 seeds, 35E claim, all 5 unlock levels
+//   node scripts/autopilot-sweep.mts 300 50                # 300 seeds, 50E claim, all 5 unlock levels
+//   node scripts/autopilot-sweep.mts 300 35 "Copper only"  # just one unlock level — see UNLOCK_LEVELS below
 
-import { runAI, score, chassisFromEffects } from '../lib/mining-engine.ts';
-import type { Chassis, StatKey } from '../lib/mining-engine.ts';
+import { runAI, score, chassisFromEffects, fieldDims } from '../lib/mining-engine.ts';
+import type { Chassis, OreTypeKey, StatKey } from '../lib/mining-engine.ts';
+
+// The 5 unlock levels from Stage 6's acceptance table (build-spec-ore-
+// progression.md) — copper is always unlocked, the rest ramp up by tier.
+const UNLOCK_LEVELS: [string, OreTypeKey[]][] = [
+  ['Copper only', ['copper']],
+  ['All tier 1', ['copper', 'zinc', 'iron']],
+  ['Tiers 1-2', ['copper', 'zinc', 'iron', 'silver', 'gold', 'platinum']],
+  ['Tiers 1-3', ['copper', 'zinc', 'iron', 'silver', 'gold', 'platinum', 'silica', 'germanium', 'cadmium']],
+  ['All tiers', ['copper', 'zinc', 'iron', 'silver', 'gold', 'platinum', 'silica', 'germanium', 'cadmium', 'neodymium', 'yttrium', 'lanthanum', 'tantalum']],
+];
 
 // Per-unit effects of each basic item, copied from item_catalog (as of this
 // writing) rather than read from the DB — this script stays dependency-free
@@ -63,8 +74,15 @@ const BUILDS: Record<string, Record<string, number>> = {
 
 const N = Number(process.argv[2]) || 300;
 const CLAIM = Number(process.argv[3]) || 35;
+// Pass an unlock-level name (e.g. "Copper only") as argv[4] to run just
+// that one level instead of the full Stage 6 acceptance sweep — useful for
+// quick before/after checks in stages that don't touch unlocks at all.
+const LEVEL_FILTER = process.argv[4];
+const LEVELS = LEVEL_FILTER
+  ? UNLOCK_LEVELS.filter(([label]) => label === LEVEL_FILTER)
+  : UNLOCK_LEVELS;
 
-function sweep(chassis: Chassis, n: number, claim: number) {
+function sweep(chassis: Chassis, n: number, claim: number, unlockedOreTypes: OreTypeKey[]) {
   let losses = 0;
   let gradeSum = 0, gradeCount = 0;
   let claimSpentSum = 0;
@@ -74,7 +92,7 @@ function sweep(chassis: Chassis, n: number, claim: number) {
 
   for (let i = 0; i < n; i++) {
     const seed = 100000 + i; // sequential, deterministic — reproducible across runs for before/after comparison
-    const state = runAI(seed, chassis, claim);
+    const state = runAI(seed, chassis, claim, unlockedOreTypes);
     const r = score(state);
 
     if (r.net < 0) losses++;
@@ -87,7 +105,7 @@ function sweep(chassis: Chassis, n: number, claim: number) {
     statusCounts[r.status] = (statusCounts[r.status] ?? 0) + 1;
   }
 
-  console.log(`Losing-run rate      ${((losses / n) * 100).toFixed(1)}%  (target <10%)`);
+  console.log(`Losing-run rate      ${((losses / n) * 100).toFixed(1)}%  (Stage 7's target: <10%)`);
   console.log(`Average grade        ${gradeCount ? (gradeSum / gradeCount).toFixed(2) : 'n/a'}`);
   console.log(`Claim fill rate      ${((claimSpentSum / n) * 100).toFixed(1)}%  (energy spent / claimed)`);
   console.log(`Average units banked ${(unitsSum / n).toFixed(1)}`);
@@ -96,10 +114,19 @@ function sweep(chassis: Chassis, n: number, claim: number) {
   console.log(`Status breakdown     ${Object.entries(statusCounts).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
 }
 
-for (const [label, bought] of Object.entries(BUILDS)) {
-  const chassis = buildChassis(bought);
-  console.log(`\n${label} — ${N} seeds, ${CLAIM}E claim`);
-  console.log(`  fuelCap ${chassis.fuelCap} · hold ${chassis.hold} · sink ${chassis.sinkCap} · speed ${chassis.speed.toFixed(2)} · movement ${chassis.movement.toFixed(2)}`);
-  console.log('-'.repeat(56));
-  sweep(chassis, N, CLAIM);
+// "did this stage change the numbers at all" is Stages 1-6's bar, not the
+// <10% target — that's Stage 7's job (see the Context section of
+// build-spec-ore-progression.md). Run every unlock level for every build,
+// since Stage 6 acceptance is specifically about how these numbers move
+// *across* levels, not any single one of them.
+for (const [levelLabel, unlockedOreTypes] of LEVELS) {
+  const dims = fieldDims(unlockedOreTypes);
+  console.log(`\n${'='.repeat(70)}\n${levelLabel} — field ${dims.W}x${dims.H}\n${'='.repeat(70)}`);
+  for (const [label, bought] of Object.entries(BUILDS)) {
+    const chassis = buildChassis(bought);
+    console.log(`\n${label} — ${N} seeds, ${CLAIM}E claim`);
+    console.log(`  fuelCap ${chassis.fuelCap} · hold ${chassis.hold} · sink ${chassis.sinkCap} · speed ${chassis.speed.toFixed(2)} · movement ${chassis.movement.toFixed(2)}`);
+    console.log('-'.repeat(56));
+    sweep(chassis, N, CLAIM, unlockedOreTypes);
+  }
 }

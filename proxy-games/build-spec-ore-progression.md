@@ -1,6 +1,6 @@
 # Build Spec — Ore Taxonomy, Progression, and the Ore Economy
 
-*Staged build for the mining minigame. Eight stages (0–7), each shipping something playable. Build them in order — several depend on decisions made in earlier stages, stage 0 is a prerequisite for verifying any of the others, and stage 6 will break the autopilot guardrail if stages 1–5 are not settled first.*
+*Staged build for the mining minigame. Nine stages (0–8), each shipping something playable. Build them in order — several depend on decisions made in earlier stages, stage 0 is a prerequisite for verifying any of the others, stage 6 will break the autopilot guardrail if stages 1–5 are not settled first, and stage 8 (hazards and bonuses, split out from stage 6) needs stage 7's balance pass to land on.*
 
 ---
 
@@ -196,7 +196,7 @@ Unlocked minerals appear and the map grows. **This is the riskiest stage.**
 
 - Field dimensions become a function of unlocked minerals per the map scaling table.
 - Field generation respects `depth_gate` — tier-4 pockets exist only beyond 0.72 normalised distance.
-- Hazards and bonuses become genuinely reachable content at these map sizes. Prioritise **fuel caches** (a mid-run refill that turns a marginal deep run into a profitable one) and **slip faults** (shunts the rig 2–3 cells and ends the move, forcing a bail-or-push decision).
+- Hazards and bonuses (fuel caches, slip faults) are deliberately deferred to Stage 8, once there's a map big enough for them to matter and a balance pass (Stage 7) to tune around. Not needed to hit this stage's acceptance table below.
 
 **Acceptance — run the full statistical sweep at every unlock level:**
 
@@ -220,6 +220,16 @@ If losing runs exceed 10% at any unlock level, the map has outgrown the fuel eco
 - At 60% success, deep runs should be clearly profitable in expectation. The grind for licences, drive tiers and fuel is the gate; once a player is through it, the payoff should land.
 - Claim sizes stay capped at 50. Deep runs bring back **less tonnage of more valuable ore**, which preserves flat quantity.
 - Re-verify the autopilot statistically at every unlock tier.
+
+---
+
+## Stage 8 — Hazards and bonuses
+
+Split out from Stage 6: needs a map big enough for this content to be reachable, and a fuel economy already balanced (Stage 7) to layer it onto rather than compensate for.
+
+- **Fuel caches** — a mid-run refill, placed like the existing gas/seam/cavern scatter. Turns a marginal deep run into a profitable one; existence alone shouldn't make a bad fit good.
+- **Slip faults** — shunts the rig 2–3 cells and ends the move immediately, forcing a bail-or-push decision rather than being a pure penalty.
+- Re-verify the autopilot statistically once these exist — they change reachability, which is exactly what the cherry-picking/oscillation bugs fed on before.
 
 ---
 

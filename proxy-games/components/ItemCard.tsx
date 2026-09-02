@@ -18,6 +18,15 @@ type ItemCardProps = {
   busy?: boolean;
   accent?: Accent;
   onBuy: () => void;
+  /** Disables Acquire regardless of funds/owned, with its own button label
+   * (e.g. ore on the Mechanic page — buy it from the Surveyor instead). */
+  buyDisabledReason?: string;
+  /** Credits for one unit if sold — omit (or 0 available) to hide Sell. */
+  sellValue?: number;
+  /** How many units are actually sellable (owned minus equipped). */
+  sellQuantity?: number;
+  sellBusy?: boolean;
+  onSell?: () => void;
 };
 
 export function ItemCard({
@@ -33,10 +42,17 @@ export function ItemCard({
   busy = false,
   accent = ACCENT_ALIASES.rust,
   onBuy,
+  buyDisabledReason,
+  sellValue,
+  sellQuantity = 0,
+  sellBusy = false,
+  onSell,
 }: ItemCardProps) {
   const a = ACCENTS[accent];
   const affordable = cost <= funds;
-  const disabled = busy || owned || !affordable;
+  const disabled = busy || owned || !affordable || !!buyDisabledReason;
+  const canSell = !!sellValue && sellQuantity > 0 && !!onSell;
+  const sellDisabled = sellBusy;
 
   return (
     <div className="relative pl-6 pt-6">
@@ -101,20 +117,32 @@ export function ItemCard({
             </div>
           </div>
 
-          <div className="mt-auto pt-1">
+          <div className="mt-auto flex gap-2 pt-1">
             <button
               onClick={onBuy}
               disabled={disabled}
-              className={`w-full rounded px-5 py-2 text-[11px] font-bold uppercase tracking-[.14em] ${ATOMS.textVoid} transition ${a.btn} ${SURFACE.btnDisabled}`}
+              className={`flex-1 rounded px-5 py-2 text-[11px] font-bold uppercase tracking-[.14em] ${ATOMS.textVoid} transition ${a.btn} ${SURFACE.btnDisabled}`}
             >
               {owned
                 ? "Fitted"
                 : busy
                   ? "…"
-                  : !affordable
-                    ? "Insufficient funds"
-                    : "Acquire"}
+                  : buyDisabledReason
+                    ? buyDisabledReason
+                    : !affordable
+                      ? "Insufficient funds"
+                      : "Acquire"}
             </button>
+            {canSell && (
+              <button
+                onClick={onSell}
+                disabled={sellDisabled}
+                title={`${sellValue!.toLocaleString()} cr each · ${sellQuantity} available`}
+                className={`flex-1 rounded border ${ATOMS.borderLine} px-5 py-2 text-[11px] font-bold uppercase tracking-[.14em] ${ATOMS.textDim} transition hover:bg-white/5 ${SURFACE.btnDisabled}`}
+              >
+                {sellBusy ? "…" : `Sell (${sellValue!.toLocaleString()} cr ea)`}
+              </button>
+            )}
           </div>
         </div>
       </div>

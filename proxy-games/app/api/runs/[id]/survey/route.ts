@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { currentPlayer } from '@/lib/auth';
 import { loadFittingRun, purchaseSurvey } from '@/lib/mining-run-store';
+import { loadUnlockedOreTypes } from '@/lib/mining-inventory';
 import { CFG, surveyReport } from '@/lib/mining-engine';
 import type { SurveyTier } from '@/lib/mining-engine';
 
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'run not found' }, { status: 404 });
   }
 
-  const report = surveyReport(row.seed, tier);
+  const unlockedOreTypes = await loadUnlockedOreTypes(player.id);
+  const report = surveyReport(row.seed, tier, unlockedOreTypes);
   return NextResponse.json({ report, balance: result.balance });
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { CFG, fieldDims, fuelMult } from '@/lib/mining-engine';
+import { CFG, fuelMult } from '@/lib/mining-engine';
 import type { Chassis, SurveyReport, SurveyTier } from '@/lib/mining-engine';
 import { StatsPanel } from '@/components/StatsPanel';
 import { ACCENTS, ATOMS, SURFACE, type Accent } from '@/lib/mining-theme';
@@ -31,6 +31,11 @@ interface FittingPanelProps {
   report: SurveyReport | null;
   balance: string | null;
   runId: string | null;
+  // Field size for this player's unlocked minerals — computed server-side
+  // (see fieldDims() in lib/mining-engine.ts) since it depends on license
+  // ownership, not anything the client can derive on its own. Falls back to
+  // the base map size until the parent's fetch resolves.
+  dims: { W: number; H: number };
   onClaimChange: (claim: number) => void;
   onRequestSurvey: (tier: 'basic' | 'full') => void;
   onLaunch: () => void;
@@ -63,10 +68,9 @@ function BuyChip({ label, sub, on, disabled, accent, onClick }: {
 // survey or skip it, then buy a claim size, then check the chassis (fitted
 // out ahead of time on the dedicated build screen), then launch.
 export function FittingPanel({
-  chassis: ch, claim, survey, report, balance, runId,
+  chassis: ch, claim, survey, report, balance, runId, dims,
   onClaimChange, onRequestSurvey, onLaunch
 }: FittingPanelProps) {
-  const dims = fieldDims();
   const claimCost = CFG.CLAIM_COST[claim] ?? 0;
   const funds = balance ? Number(balance) : 0;
 

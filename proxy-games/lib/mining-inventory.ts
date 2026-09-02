@@ -1,6 +1,6 @@
 import { sql } from "@/db/client";
 import { CFG, chassisFromEffects } from "./mining-engine";
-import type { Chassis, StatKey } from "./mining-engine";
+import type { Chassis, OreTypeKey, StatKey } from "./mining-engine";
 
 export interface CatalogItem {
   item_key: string;
@@ -12,6 +12,10 @@ export interface CatalogItem {
   effects: Partial<Record<StatKey, number>>;
   active: boolean;
   image_url: string | null;
+  sellable: boolean;
+  // Ore: a flat credit price. Everything else: a ratio of `cost` (0.5 =
+  // sells back at 50%) — see db/011_sell_prices.sql. Null when !sellable.
+  sell_value: string | null;
 }
 
 export interface InventoryRow {
@@ -22,7 +26,7 @@ export interface InventoryRow {
 
 export async function loadCatalog(game: string): Promise<CatalogItem[]> {
   const rows = await sql`
-    select item_key, game, category, label, description, cost, effects, active, image_url
+    select item_key, game, category, label, description, cost, effects, active, image_url, sellable, sell_value
     from item_catalog
     where game = ${game} and active = true
     order by category, cost
@@ -82,6 +86,63 @@ export async function purchaseItem(
   return { kind: "ok", balance: deducted.balance };
 }
 
+export type SellItemResult =
+  | { kind: "ok"; balance: string }
+  | { kind: "not_found" }
+  | { kind: "not_sellable" }
+  | { kind: "insufficient_owned" };
+
+// Mirrors purchaseItem()'s shape in reverse: credit first (atomic, so a
+// race can't double-sell past what's actually available), then the
+// inventory/ledger update as a batch. Only unequipped copies can be sold —
+// owned_quantity drops, equipped_quantity is untouched, so selling never
+// silently unequips something still fitted (sell the copies you're not
+// using, or unequip first). Ore's sell_value is a flat credit price;
+// everything else's is a ratio of that row's own cost — see
+// db/011_sell_prices.sql and the CatalogItem comment above.
+export async function sellItem(
+  playerId: string,
+  game: string,
+  itemKey: string,
+  quantity: number,
+): Promise<SellItemResult> {
+  const [row] = await sql`
+    select ic.cost, ic.sellable, ic.sell_value, ic.category,
+           coalesce(pi.owned_quantity, 0) as owned_quantity,
+           coalesce(pi.equipped_quantity, 0) as equipped_quantity
+    from item_catalog ic
+    left join player_inventory pi on pi.item_key = ic.item_key and pi.player_id = ${playerId}
+    where ic.item_key = ${itemKey} and ic.game = ${game} and ic.active = true
+  `;
+  if (!row) return { kind: "not_found" };
+  if (!row.sellable || row.sell_value == null) return { kind: "not_sellable" };
+
+  const available = row.owned_quantity - row.equipped_quantity;
+  if (quantity > available) return { kind: "insufficient_owned" };
+
+  const unitPrice =
+    row.category === ORE_CATEGORY
+      ? Number(row.sell_value)
+      : Number(row.cost) * Number(row.sell_value);
+  const proceeds = unitPrice * quantity;
+
+  await sql.transaction([
+    sql`
+      update player_inventory set owned_quantity = owned_quantity - ${quantity}, updated_at = now()
+      where player_id = ${playerId} and item_key = ${itemKey}
+    `,
+    sql`
+      insert into balance_transactions (player_id, game, reason, delta)
+      values (${playerId}, ${game}, 'item_sale', ${proceeds})
+    `,
+    sql`update players set balance = balance + ${proceeds} where id = ${playerId}`,
+  ]);
+
+  const [{ balance }] =
+    await sql`select balance from players where id = ${playerId}`;
+  return { kind: "ok", balance };
+}
+
 export type SetEquippedResult = "ok" | "not_owned" | "over_cap";
 
 // Equipment items (ore siphon, line scanner) draw against a completely
@@ -96,26 +157,30 @@ export const EQUIPMENT_CATEGORY = "equipment";
 // type instead of a single row.
 export const ORE_CATEGORY = "ore";
 
-// One-time per-mineral unlocks (see db/013_mineral_licences.sql) — same
-// one-time-gate shape as EQUIPMENT_SLOT_KEY below, just twelve rows instead
-// of one. Bought via the ordinary purchaseItem() flow; the store UI (not
-// a dedicated endpoint) is what stops a player from buying a second one.
-export const LICENCE_CATEGORY = "licence";
+// One-time per-mineral unlocks (see db/013_mineral_licences.sql and the
+// db/014 rename) — same one-time-gate shape as EQUIPMENT_SLOT_KEY below,
+// just twelve rows instead of one. Bought via the ordinary purchaseItem()
+// flow; the store UI (not a dedicated endpoint) is what stops a player from
+// buying a second one. Item keys are 'license_<ore>'.
+export const LICENSE_CATEGORY = "license";
 
 // Every mineral eligible for field generation for this player — copper is
 // always included, since it's unlocked from the start and never gated by a
-// licence (see Stage 5 of build-spec-ore-progression.md). Nothing consumes
-// this yet; it's the query side of "the mechanism for unlocking new ore,"
-// ready for Stage 6's field generation to read.
-export async function loadUnlockedOreTypes(playerId: string): Promise<string[]> {
+// license (see Stage 5 of build-spec-ore-progression.md). Consumed by
+// Stage 6's field generation.
+export async function loadUnlockedOreTypes(
+  playerId: string,
+): Promise<OreTypeKey[]> {
   const rows = await sql`
     select pi.item_key from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and ic.category = ${LICENCE_CATEGORY} and pi.owned_quantity > 0
+    where pi.player_id = ${playerId} and ic.category = ${LICENSE_CATEGORY} and pi.owned_quantity > 0
   `;
   return [
     "copper",
-    ...rows.map((r) => (r.item_key as string).replace(/_licence$/, "")),
+    ...rows.map(
+      (r) => (r.item_key as string).replace(/^license_/, "") as OreTypeKey,
+    ),
   ];
 }
 

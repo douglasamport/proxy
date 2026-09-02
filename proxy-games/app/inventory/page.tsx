@@ -66,7 +66,13 @@ export default async function InventoryPage() {
             href="/games/mining/store"
             className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500"
           >
-            Store
+            Mechanic
+          </Link>
+          <Link
+            href="/games/mining/surveyor"
+            className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500"
+          >
+            Surveyor
           </Link>
         </div>
       </div>
@@ -75,7 +81,7 @@ export default async function InventoryPage() {
         <p className="text-slate-400">
           You don&rsquo;t own anything yet. Visit the{" "}
           <Link href="/games/mining/store" className="text-cyan-400 underline">
-            store
+            mechanic
           </Link>{" "}
           to get started.
         </p>

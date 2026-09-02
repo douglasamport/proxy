@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/db/client';
 import { currentPlayer } from '@/lib/auth';
 import { loadFittingRun, toPublicView } from '@/lib/mining-run-store';
-import { computeChassis, loadoutSnapshot } from '@/lib/mining-inventory';
+import { computeChassis, loadoutSnapshot, loadUnlockedOreTypes } from '@/lib/mining-inventory';
 import { CFG, applySurvey, createRun } from '@/lib/mining-engine';
 
 // POST { claim } -> the initial PublicRunView for the run.
@@ -33,11 +33,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'run not found' }, { status: 404 });
   }
 
-  const [chassis, loadout] = await Promise.all([
+  const [chassis, loadout, unlockedOreTypes] = await Promise.all([
     computeChassis(player.id),
     loadoutSnapshot(player.id),
+    loadUnlockedOreTypes(player.id),
   ]);
-  const state = applySurvey(createRun(row.seed, chassis, claim), row.survey);
+  const state = applySurvey(
+    createRun(row.seed, chassis, claim, unlockedOreTypes),
+    row.survey,
+  );
 
   const [saved] = await sql`
     update in_progress_runs
