@@ -15,9 +15,9 @@ export default function HomePage() {
       >
         {welcomeHeader}
       </h1>
-      <p className="text-left whitespace-pre-wrap break-words max-w-xl">
+      {/* <p className="text-left whitespace-pre-wrap break-words max-w-xl">
         {welcomeMessage}
-      </p>
+      </p> */}
       <Link
         href="/games"
         className="rounded-md bg-cyan-500 px-5 py-2.5 font-semibold text-slate-950 transition hover:bg-cyan-400"
