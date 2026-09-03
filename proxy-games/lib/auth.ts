@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { cookies } from 'next/headers';
 import { sql } from '@/db/client';
+import { grantStarterKit } from '@/lib/mining-inventory';
 
 const SESSION_COOKIE = 'sid';
 const TOKEN_TTL_MIN = 15;
@@ -16,12 +17,22 @@ export function newToken() {
 export async function requestLogin(email: string) {
   const normalised = email.trim().toLowerCase();
 
+  // `xmax = 0` is a Postgres idiom for "this row was just inserted, not
+  // updated via the ON CONFLICT branch" — the only reliable way to tell a
+  // genuinely new player from a returning one out of a single upsert,
+  // without a separate SELECT-then-INSERT race.
   const [player] = await sql`
     insert into players (email)
     values (${normalised})
     on conflict (email) do update set email = excluded.email
-    returning id
+    returning id, (xmax = 0) as inserted
   `;
+
+  if (player.inserted) {
+    // Mining-specific for now (the shell has only one game) — revisit if a
+    // second game ever needs its own starter kit at signup.
+    await grantStarterKit(player.id);
+  }
 
   const token = newToken();
   const expires = new Date(Date.now() + TOKEN_TTL_MIN * 60_000);

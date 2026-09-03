@@ -387,6 +387,38 @@ export async function loadEquipmentAvailable(
   return rows.map((r) => r.item_key as string);
 }
 
+// Granted once, at account creation (see requestLogin() in lib/auth.ts,
+// which only calls this for a genuinely new player row, never a returning
+// one). Unlike BASELINE_* below — an invisible stat floor applied at
+// compute time, regardless of ownership — this is real owned+equipped
+// player_inventory, the same as anything bought from the store: it shows
+// up on the Build screen, it can be sold, it counts against SLOT_TOTAL.
+// The point is a first run that's actually survivable without the player
+// having to guess what to buy first (see build-spec-ore-progression.md's
+// "starter phase" discussion) — BASELINE_DRIVE/STEER/ARMOUR/CARGO already
+// cover everything except fuel, so a bare-baseline chassis has 0 fuel
+// capacity and can't move at all.
+//
+// Tune this table directly — it's the one place these numbers live.
+// Early read from actual play: this may need to go up, not down, even
+// with a fully-slotted 10/10 chassis the game already plays hard.
+export const STARTER_KIT: Record<string, number> = {
+  fuel_basic: 2,
+  drive_basic: 2,
+  steer_basic: 1,
+};
+
+export async function grantStarterKit(playerId: string): Promise<void> {
+  const writes = Object.entries(STARTER_KIT).map(
+    ([itemKey, quantity]) => sql`
+      insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
+      values (${playerId}, ${itemKey}, ${quantity}, ${quantity})
+      on conflict (player_id, item_key) do nothing
+    `,
+  );
+  await sql.transaction(writes);
+}
+
 // Every chassis has this much for free, before anything's equipped — one
 // basic drive, one basic steer, one basic armor plate, three basic cargo
 // units. Without it a totally bare chassis has 0 speed and 0 movement,
