@@ -403,9 +403,10 @@ export async function loadEquipmentAvailable(
 // Early read from actual play: this may need to go up, not down, even
 // with a fully-slotted 10/10 chassis the game already plays hard.
 export const STARTER_KIT: Record<string, number> = {
-  fuel_basic: 2,
-  drive_basic: 2,
+  fuel_basic: 3,
+  drive_basic: 3,
   steer_basic: 1,
+  cargo_basic: 1,
 };
 
 export async function grantStarterKit(playerId: string): Promise<void> {
