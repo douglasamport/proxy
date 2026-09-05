@@ -293,41 +293,43 @@ export function RunField({
 
   return (
     <div className="mining-root">
-      <div className="field" style={fieldStyle}>
-        {cells}
-      </div>
-      {run.status === "active" &&
-        run.contacts.map((k) => {
-          const r = Math.max(px * 0.62, (k.blur + 0.45) * px);
-          return (
-            <div
-              key={k.key}
-              className={`contact${k.survey ? " surveyed" : ""}`}
-              style={{
-                left: gx(k.x),
-                top: gx(k.y),
-                width: r * 2,
-                height: r * 2,
-                opacity: Math.max(0.3, 0.85 - k.blur * 0.18),
-              }}
-            >
-              <span>
-                {k.mass}u
-                {!k.survey && (
-                  <>
-                    <br />
-                    {`g${k.lo === k.hi ? k.lo : `${k.lo}–${k.hi}`}`}
-                  </>
-                )}
-              </span>
-            </div>
-          );
-        })}
-      {run.status === "active" && run.bearing && (
-        <div className="bearing">
-          <b>{ARROWS[run.bearing.dir]}</b> strong return · {run.bearing.mass}u
+      <div className="fieldwrap">
+        <div className="field" style={fieldStyle}>
+          {cells}
         </div>
-      )}
+        {run.status === "active" &&
+          run.contacts.map((k) => {
+            const r = Math.max(px * 0.62, (k.blur + 0.45) * px);
+            return (
+              <div
+                key={k.key}
+                className={`contact${k.survey ? " surveyed" : ""}`}
+                style={{
+                  left: gx(k.x),
+                  top: gx(k.y),
+                  width: r * 2,
+                  height: r * 2,
+                  opacity: Math.max(0.3, 0.85 - k.blur * 0.18),
+                }}
+              >
+                <span>
+                  {k.mass}u
+                  {!k.survey && (
+                    <>
+                      <br />
+                      {`g${k.lo === k.hi ? k.lo : `${k.lo}–${k.hi}`}`}
+                    </>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        {run.status === "active" && run.bearing && (
+          <div className="bearing">
+            <b>{ARROWS[run.bearing.dir]}</b> strong return · {run.bearing.mass}u
+          </div>
+        )}
+      </div>
     </div>
   );
 }
