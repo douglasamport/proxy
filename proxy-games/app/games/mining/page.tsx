@@ -6,6 +6,7 @@ import { CFG, chassisFromEffects } from "@/lib/mining-engine";
 import type {
   Chassis,
   DirKey,
+  OreLoad,
   RunStatus,
   ScoreResult,
   SurveyReport,
@@ -55,6 +56,7 @@ interface EndResult {
   energyStart: number;
   you: ScoreResult;
   ai: ScoreResult;
+  view: { banked: OreLoad[] };
 }
 
 type FieldDims = { W: number; H: number };
@@ -479,6 +481,7 @@ export default function MiningPage() {
           energyStart={results.energyStart}
           you={results.you}
           ai={results.ai}
+          banked={results.view.banked}
           settling={settling}
           onSettle={doSettle}
         />

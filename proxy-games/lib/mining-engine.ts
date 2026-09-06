@@ -313,7 +313,7 @@ export const CFG = {
   CAVERN_SPREAD: 2.2,
 
   ENERGY: 35, // DEFAULT claim only — the player sets this at fitting
-  ENERGY_MAX: 50, // hard ceiling on a single run's claim
+  ENERGY_MAX: 100, // hard ceiling on a single run's claim
   AI_SINK_STOP: 0.3, // baseline calls it a day below this share of sink
 
   GRADE_VALUE: [0, 1, 3, 8, 20],
@@ -343,10 +343,18 @@ export const CFG = {
     },
   } as Record<SurveyTier, SurveySpec>,
   // Claim size is its own purchase now, on top of the flat launch cost —
-  // bigger claims still cost less per unit (30/20 vs 55/50), same lesson
-  // as before, just with a real price tag on the choice itself.
-  CLAIM_OPTIONS: [20, 35, 50],
-  CLAIM_COST: { 20: 30, 35: 45, 50: 55 } as Record<number, number>,
+  // bigger claims still cost less per unit (30/20 down to 90/100), same
+  // lesson as before, just with a real price tag on the choice itself.
+  // 75/100 added so success on the bigger Stage 6 maps has somewhere to go
+  // instead of forcing more repeat launches at the same 50 ceiling —
+  // ORE_HEADROOM isn't actually wired into field generation (deposit
+  // density is a flat per-100-cells constant, independent of claim), so a
+  // big claim only pays off on a map that's actually big enough to hold it.
+  CLAIM_OPTIONS: [20, 35, 50, 75, 100],
+  CLAIM_COST: { 20: 30, 35: 45, 50: 55, 75: 75, 100: 90 } as Record<
+    number,
+    number
+  >,
   AI_SURVEY: "basic" as SurveyTier, // unattended runs always buy one — that is what a survey is for
   AI_MARGIN: 1.4, // absolute floor: don't cut ore that fails to cover its own fuel
   AI_REACH: 0.2, // and never travel further than this share of the tank for ANY ore,

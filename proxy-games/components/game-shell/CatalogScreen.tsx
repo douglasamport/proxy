@@ -8,6 +8,7 @@ import { categoryIcon } from "./icons";
 import { ItemCard } from "./ItemCard";
 import { categoryOptions, FilterBar } from "./FilterBar";
 import { SellQuantityModal } from "./SellQuantityModal";
+import { BuyQuantityModal } from "./BuyQuantityModal";
 import { accentForCategory, ATOMS } from "@/lib/mining-theme";
 import { useInventory } from "./InventoryContext";
 
@@ -75,6 +76,18 @@ export function CatalogScreen({
     maxQuantity: number;
   } | null>(null);
 
+  // Same idea, for buying — set by an ItemCard's Acquire click, cleared on
+  // cancel or once the purchase completes. `isEquipmentSlot` routes confirm
+  // to buyEquipmentSlot() (a dedicated one-shot endpoint with no quantity
+  // of its own) instead of the ordinary quantity-aware buy().
+  const [buyTarget, setBuyTarget] = useState<{
+    item_key: string;
+    label: string;
+    cost: number;
+    maxQuantity: number;
+    isEquipmentSlot: boolean;
+  } | null>(null);
+
   const { catalog, inventory, balance, load } = useInventory();
 
   const ownedByKey = new Map(
@@ -101,13 +114,13 @@ export function CatalogScreen({
     [visibleCatalog, filter],
   );
 
-  async function buy(itemKey: string) {
+  async function buy(itemKey: string, quantity: number) {
     setBusyKey(itemKey);
     setError("");
     const res = await fetch("/api/store/buy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game, item_key: itemKey, quantity: 1 }),
+      body: JSON.stringify({ game, item_key: itemKey, quantity }),
     });
     setBusyKey(null);
     if (!res.ok) {
@@ -118,6 +131,7 @@ export function CatalogScreen({
       );
       return;
     }
+    setBuyTarget(null);
     await load();
     router.refresh(); // balance changed — refresh the header's server-rendered figure
   }
@@ -188,6 +202,7 @@ export function CatalogScreen({
       );
       return;
     }
+    setBuyTarget(null);
     await load();
     router.refresh();
   }
@@ -293,9 +308,19 @@ export function CatalogScreen({
                 onBuy={() =>
                   isExpansion
                     ? buyExpansion()
-                    : isEquipmentSlotUnlock
-                      ? buyEquipmentSlot()
-                      : buy(item.item_key)
+                    : setBuyTarget({
+                        item_key: item.item_key,
+                        label: item.label,
+                        cost,
+                        // One-time unlocks can only ever be bought once —
+                        // the modal still opens (per "every item except
+                        // expansion slots"), it just has nothing to pick.
+                        maxQuantity:
+                          isEquipmentSlotUnlock || isLicense || isOneTimeUnlock
+                            ? 1
+                            : Math.max(1, Math.floor(funds / cost)),
+                        isEquipmentSlot: isEquipmentSlotUnlock,
+                      })
                 }
               />
             );
@@ -311,6 +336,21 @@ export function CatalogScreen({
           busy={sellBusyKey === sellTarget.item_key}
           onConfirm={(quantity) => sell(sellTarget.item_key, quantity)}
           onCancel={() => setSellTarget(null)}
+        />
+      )}
+
+      {buyTarget && (
+        <BuyQuantityModal
+          label={buyTarget.label}
+          cost={buyTarget.cost}
+          maxQuantity={buyTarget.maxQuantity}
+          busy={busyKey === buyTarget.item_key}
+          onConfirm={(quantity) =>
+            buyTarget.isEquipmentSlot
+              ? buyEquipmentSlot()
+              : buy(buyTarget.item_key, quantity)
+          }
+          onCancel={() => setBuyTarget(null)}
         />
       )}
     </div>

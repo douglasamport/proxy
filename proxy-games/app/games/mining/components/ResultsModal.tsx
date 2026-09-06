@@ -1,8 +1,27 @@
 "use client";
 
-import type { RunStatus, ScoreResult } from "@/lib/mining-engine";
+import { ORE_TYPES } from "@/lib/mining-engine";
+import type { OreLoad, RunStatus, ScoreResult } from "@/lib/mining-engine";
 import { Modal } from "@/components/game-shell/Modal";
 import { ATOMS, SURFACE } from "@/lib/mining-theme";
+
+// One row per ore type actually banked this run, most units first — the
+// manifest used to only show a single "ore income" total, which said
+// nothing about what was actually in the hold once more than one mineral
+// could come back from a single run (see Stage 6 of
+// build-spec-ore-progression.md).
+function oreBreakdown(banked: OreLoad[]): { label: string; units: number }[] {
+  const totals = new Map<string, number>();
+  for (const load of banked) {
+    totals.set(load.oreType, (totals.get(load.oreType) ?? 0) + load.units);
+  }
+  return Array.from(totals.entries())
+    .map(([oreType, units]) => ({
+      label: ORE_TYPES[oreType as keyof typeof ORE_TYPES]?.label ?? oreType,
+      units,
+    }))
+    .sort((a, b) => b.units - a.units);
+}
 
 const VERDICT: Record<string, [string, string]> = {
   banked: ["Run banked", ATOMS.textOk],
@@ -82,6 +101,7 @@ interface ResultsModalProps {
   energyStart: number;
   you: ScoreResult;
   ai: ScoreResult;
+  banked: OreLoad[];
   settling: boolean;
   onSettle: (choice: "credits" | "ore") => void;
 }
@@ -98,11 +118,13 @@ export function ResultsModal({
   energyStart,
   you,
   ai,
+  banked,
   settling,
   onSettle,
 }: ResultsModalProps) {
   const [vtxt, vcol] = VERDICT[status] || ["Run over", ATOMS.textDim];
   const netUp = you.net >= 0;
+  const breakdown = oreBreakdown(banked);
 
   return (
     <Modal wide>
@@ -121,6 +143,20 @@ export function ResultsModal({
           <span className={ATOMS.textDim}>Ore income</span>
           <b className={ATOMS.textOk}>+{you.revenue.toFixed(0)}</b>
         </div>
+
+        {breakdown.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {breakdown.map((row) => (
+              <div
+                key={row.label}
+                className="flex justify-between pl-3 text-[11px]"
+              >
+                <span className={ATOMS.textDim}>{row.label}</span>
+                <span className={ATOMS.textPrimary}>{row.units}u</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className={`mt-3 ${SURFACE.label}`}>Costs</div>
         <div className="mt-2 space-y-1">
