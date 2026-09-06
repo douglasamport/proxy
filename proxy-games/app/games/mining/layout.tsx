@@ -1,147 +1,29 @@
 "use client";
 
+import { GameHeader } from "@/components/game-shell/GameHeader";
 import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  createContext,
-  use,
-  useMemo,
-  Dispatch,
-  SetStateAction,
-} from "react";
-
-import { GameHeader } from "@/app/games/mining/components/GameHeader";
+  InventoryProvider as SharedInventoryProvider,
+  useInventory,
+} from "@/components/game-shell/InventoryContext";
 import { ACCENTS, ATOMS } from "@/lib/mining-theme";
-import {
-  CFG,
-  chassisFromEffects,
-  Chassis,
-  fuelMult,
-} from "@/lib/mining-engine";
-import type { CatalogItem, InventoryRow } from "@/lib/mining-inventory";
-const EQUIPMENT_CATEGORY = "equipment";
 
-import { usePathname, useSelectedLayoutSegments } from "next/navigation";
-const SHOW_SEED_CONTROLS = process.env.NODE_ENV !== "production";
+import { useSelectedLayoutSegments } from "next/navigation";
 
 type NavLink = {
   href: string;
   label: string;
 };
 
-interface InventoryContextType {
-  authRequired: boolean;
-  setAuthRequired: Dispatch<SetStateAction<boolean>>;
-  equipmentSlotTotal: number;
-  setEquipmentSlotTotal: Dispatch<SetStateAction<number>>;
-  catalog: CatalogItem[];
-  setCatalog: Dispatch<SetStateAction<CatalogItem[]>>;
-  inventory: InventoryRow[];
-  setInventory: Dispatch<SetStateAction<InventoryRow[]>>;
-  balance: string | null;
-  setBalance: Dispatch<SetStateAction<string | null>>;
-  chassis: Chassis;
-  setChassis: Dispatch<SetStateAction<Chassis>>;
-  slotTotal: number;
-  setSlotTotal: Dispatch<SetStateAction<number>>;
-  load: () => Promise<void>;
-  equippedChassisTotal: number;
-  equippedEquipmentTotal: number;
-}
-export const InventoryContext = createContext<InventoryContextType | null>(
-  null,
-);
-
+// Thin mining-scoped wrapper around the shared, game-parameterized provider
+// (see components/game-shell/InventoryContext.tsx) — kept so every mining
+// file that already does `import { useInventory } from "../layout"` (or
+// "@/app/games/mining/layout") keeps working unchanged.
 export function InventoryProvider({ children }: { children: React.ReactNode }) {
-  const [equipmentSlotTotal, setEquipmentSlotTotal] = useState(0);
-  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [inventory, setInventory] = useState<InventoryRow[]>([]);
-  const [balance, setBalance] = useState<string | null>(null);
-  const [chassis, setChassis] = useState<Chassis>(() => chassisFromEffects({}));
-  const [slotTotal, setSlotTotal] = useState(CFG.SLOT_TOTAL);
-  const [authRequired, setAuthRequired] = useState(false);
-
-  const load = useCallback(async () => {
-    const res = await fetch("/api/inventory?game=mining");
-    if (!res.ok) {
-      if (res.status === 401) setAuthRequired(true);
-      return;
-    }
-    setAuthRequired(false);
-    const data = await res.json();
-    setCatalog(data.catalog);
-    setInventory(data.inventory);
-    setBalance(data.balance);
-    setChassis(data.chassis);
-    setSlotTotal(data.slotTotal);
-    setEquipmentSlotTotal(data.equipmentSlotTotal);
-  }, []);
-
-  const didLoadRef = useRef(false);
-  useEffect(() => {
-    if (didLoadRef.current) return;
-    didLoadRef.current = true;
-    load();
-  }, [load]);
-
-  const catByKey = useMemo(
-    () => new Map(catalog.map((c) => [c.item_key, c])),
-    [catalog],
-  );
-
-  // Equipment items (ore siphon, line scanner) draw against their own
-  // separate slot pool, not the chassis one — see getEquipmentSlotTotal()
-  // in lib/mining-inventory.ts.
-
-  let equippedChassisTotal = 0;
-  let equippedEquipmentTotal = 0;
-  for (const row of inventory) {
-    if (row.equipped_quantity <= 0) continue;
-    if (catByKey.get(row.item_key)?.category === EQUIPMENT_CATEGORY)
-      equippedEquipmentTotal += row.equipped_quantity;
-    else equippedChassisTotal += row.equipped_quantity;
-  }
-
   return (
-    <InventoryContext
-      value={{
-        equipmentSlotTotal,
-        setEquipmentSlotTotal,
-        catalog,
-        setCatalog,
-        inventory,
-        setInventory,
-        balance,
-        setBalance,
-        chassis,
-        setChassis,
-        slotTotal,
-        setSlotTotal,
-        authRequired,
-        setAuthRequired,
-        load,
-        equippedChassisTotal,
-        equippedEquipmentTotal,
-      }}
-    >
-      {children}
-    </InventoryContext>
+    <SharedInventoryProvider game="mining">{children}</SharedInventoryProvider>
   );
 }
-
-export function useInventory() {
-  const context = use(InventoryContext);
-
-  if (!context) {
-    throw new Error(
-      "useInventory must be used within the InventoryProvider context",
-    );
-  }
-
-  return context;
-}
+export { useInventory };
 
 export default function MiningLayout({
   children,

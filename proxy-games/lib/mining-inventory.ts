@@ -92,14 +92,23 @@ export type SellItemResult =
   | { kind: "not_sellable" }
   | { kind: "insufficient_owned" };
 
+// Categories whose sell_value is a flat credit price rather than a ratio
+// of the row's own cost (see the CatalogItem comment in
+// app/games/mining/build/page.tsx and db/011_sell_prices.sql). Both share
+// the same reason: cost is 0 for these (there's no buy side — you only
+// ever acquire them by producing them), so `cost * sell_value` would
+// always be 0. Ore was the original member; refined output (e.g. copper
+// cathode, db/015_refine_catalog.sql) is the same shape for a different
+// game, not a special case of it — extend this set rather than adding
+// another `=== ORE_CATEGORY` check when the next game needs it too.
+export const FLAT_SELL_PRICE_CATEGORIES = new Set(["ore", "refined"]);
+
 // Mirrors purchaseItem()'s shape in reverse: credit first (atomic, so a
 // race can't double-sell past what's actually available), then the
 // inventory/ledger update as a batch. Only unequipped copies can be sold —
 // owned_quantity drops, equipped_quantity is untouched, so selling never
 // silently unequips something still fitted (sell the copies you're not
-// using, or unequip first). Ore's sell_value is a flat credit price;
-// everything else's is a ratio of that row's own cost — see
-// db/011_sell_prices.sql and the CatalogItem comment above.
+// using, or unequip first).
 export async function sellItem(
   playerId: string,
   game: string,
@@ -120,10 +129,9 @@ export async function sellItem(
   const available = row.owned_quantity - row.equipped_quantity;
   if (quantity > available) return { kind: "insufficient_owned" };
 
-  const unitPrice =
-    row.category === ORE_CATEGORY
-      ? Number(row.sell_value)
-      : Number(row.cost) * Number(row.sell_value);
+  const unitPrice = FLAT_SELL_PRICE_CATEGORIES.has(row.category)
+    ? Number(row.sell_value)
+    : Number(row.cost) * Number(row.sell_value);
   const proceeds = unitPrice * quantity;
 
   await sql.transaction([

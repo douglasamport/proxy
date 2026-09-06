@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import type { CatalogItem } from "@/lib/mining-inventory";
-import { CatalogScreen } from "../components/CatalogScreen";
+import { CatalogScreen } from "@/components/game-shell/CatalogScreen";
 
 const ORE_CATEGORY = "ore";
 
@@ -41,6 +41,7 @@ export default function MechanicPage() {
 
   return (
     <CatalogScreen
+      game="mining"
       categoryFilter={categoryFilter}
       buyDisabledReason={buyDisabledReason}
     />

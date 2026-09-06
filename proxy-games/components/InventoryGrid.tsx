@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { categoryIcon } from "@/app/games/mining/icons";
+import { categoryIcon } from "@/components/game-shell/icons";
 import { InventoryCard } from "@/components/InventoryCard";
 import {
   categoryOptions,
   FilterBar,
-} from "@/app/games/mining/components/FilterBar";
+} from "@/components/game-shell/FilterBar";
 import { accentForCategory } from "@/lib/mining-theme";
 
 export interface OwnedItem {

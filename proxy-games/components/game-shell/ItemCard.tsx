@@ -7,7 +7,7 @@ import {
   SURFACE,
   type Accent,
 } from "@/lib/mining-theme";
-import { PlateOverlay } from "@/app/games/mining/components/PlateOverlay";
+import { PlateOverlay } from "./PlateOverlay";
 
 type ItemCardProps = {
   label: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import { CatalogScreen } from "../components/CatalogScreen";
+import { CatalogScreen } from "@/components/game-shell/CatalogScreen";
 
 const SURVEYOR_CATEGORIES = new Set(["license", "ore"]);
 
@@ -15,15 +15,5 @@ export default function SurveyorPage() {
     [],
   );
 
-  return (
-    <CatalogScreen
-      // section="surveyor"
-      // headerLinks={[
-      //   { href: "/games/mining/store", label: "Mechanic" },
-      //   { href: "/games/mining/build", label: "Build" },
-      //   { href: "/games/mining", label: "Back to run" },
-      // ]}
-      categoryFilter={categoryFilter}
-    />
-  );
+  return <CatalogScreen game="mining" categoryFilter={categoryFilter} />;
 }

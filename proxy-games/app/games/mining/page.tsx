@@ -22,7 +22,7 @@ import {
 } from "./components/RunScreen";
 import { ResultsModal } from "./components/ResultsModal";
 import { SurveyPurchaseModal } from "./components/SurveyPurchaseModal";
-import { GameHeader } from "@/app/games/mining/components/GameHeader";
+import { GameHeader } from "@/components/game-shell/GameHeader";
 import { ACCENTS, ATOMS, SURFACE } from "@/lib/mining-theme";
 
 type Phase = "fit" | "run";

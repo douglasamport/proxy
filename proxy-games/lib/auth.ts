@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { cookies } from 'next/headers';
 import { sql } from '@/db/client';
 import { grantStarterKit } from '@/lib/mining-inventory';
+import { grantRefineStarterKit } from '@/lib/refine-inventory';
 
 const SESSION_COOKIE = 'sid';
 const TOKEN_TTL_MIN = 15;
@@ -29,9 +30,8 @@ export async function requestLogin(email: string) {
   `;
 
   if (player.inserted) {
-    // Mining-specific for now (the shell has only one game) — revisit if a
-    // second game ever needs its own starter kit at signup.
     await grantStarterKit(player.id);
+    await grantRefineStarterKit(player.id);
   }
 
   const token = newToken();

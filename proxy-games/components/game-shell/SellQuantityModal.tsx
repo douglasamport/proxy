@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Modal } from "@/app/games/mining/components/Modal";
+import { Modal } from "./Modal";
 import { ATOMS, SURFACE } from "@/lib/mining-theme";
 
 interface SellQuantityModalProps {

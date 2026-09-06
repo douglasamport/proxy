@@ -1,26 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { StatKey } from "@/lib/mining-engine";
-import type { CatalogItem, InventoryRow } from "@/lib/mining-inventory";
-import { categoryIcon } from "../icons";
-import { ItemCard } from "@/app/games/mining/components/ItemCard";
-import {
-  categoryOptions,
-  FilterBar,
-} from "@/app/games/mining/components/FilterBar";
-import { GameHeader } from "@/app/games/mining/components/GameHeader";
+import type { CatalogItem } from "@/lib/mining-inventory";
+import { categoryIcon } from "./icons";
+import { ItemCard } from "./ItemCard";
+import { categoryOptions, FilterBar } from "./FilterBar";
 import { SellQuantityModal } from "./SellQuantityModal";
-import { accentForCategory, ACCENTS, ATOMS } from "@/lib/mining-theme";
-import { useInventory } from "../layout";
+import { accentForCategory, ATOMS } from "@/lib/mining-theme";
+import { useInventory } from "./InventoryContext";
 
 // Not imported as a value from lib/mining-inventory.ts — that module pulls
 // in the DB client, which has no business in a client bundle. Just string
-// keys, duplicated here the same way 'mining' (the game slug) is.
+// keys, duplicated here the same way 'mining'/'refine' (the game slug) is.
 const EXPANSION_KEY = "chassis_expansion";
 const EQUIPMENT_SLOT_KEY = "equipment_slot_unlock";
-const ORE_CATEGORY = "ore";
+// Mirrors FLAT_SELL_PRICE_CATEGORIES in lib/mining-inventory.ts — these
+// categories' sell_value is an absolute credit price, not a ratio of the
+// row's own cost (which is 0 for both: no buy side, only ever produced).
+const FLAT_SELL_PRICE_CATEGORIES = new Set(["ore", "refined"]);
 const ALL = "__all__";
 
 // No real art yet for most items — a placeholder keeps the layout spot
@@ -39,17 +38,25 @@ function effectsText(effects: Partial<Record<StatKey, number>>): string {
     .join("  ");
 }
 
-// Shared shell for both catalog screens (the general Mechanic store and the
-// mineral-licence/ore Surveyor) — same load/buy/sell plumbing and card
-// rendering, differing only in which categories they show and whether
-// buying is allowed for a given item (see build-spec-ore-progression.md,
-// Stage 5/6 follow-up: ore trading moved to its own dedicated screen).
+// Shared shell for every catalog screen in the shell — mining's Mechanic
+// store, its mineral-licence/ore Surveyor, and refine's equipment store —
+// same load/buy/sell plumbing and card rendering, differing only in which
+// `game` they buy against and which categories they show. `game` drives
+// which /api/inventory rows load (via InventoryProvider, see
+// components/game-shell/InventoryContext.tsx) and which store endpoint a
+// purchase posts to. Chassis-expansion and equipment-slot-unlock are
+// mining-only concepts, but they're purely data-driven here (gated on the
+// catalog row's own category) — a game whose catalog never has an
+// 'expansion' or 'equipment_slot' row (refine, today) just never exercises
+// those branches.
 export interface CatalogScreenProps {
+  game: string;
   categoryFilter: (category: string) => boolean;
   buyDisabledReason?: (item: CatalogItem) => string | undefined;
 }
 
 export function CatalogScreen({
+  game,
   categoryFilter,
   buyDisabledReason,
 }: CatalogScreenProps) {
@@ -100,7 +107,7 @@ export function CatalogScreen({
     const res = await fetch("/api/store/buy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game: "mining", item_key: itemKey, quantity: 1 }),
+      body: JSON.stringify({ game, item_key: itemKey, quantity: 1 }),
     });
     setBusyKey(null);
     if (!res.ok) {
@@ -121,7 +128,7 @@ export function CatalogScreen({
     const res = await fetch("/api/store/sell", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game: "mining", item_key: itemKey, quantity }),
+      body: JSON.stringify({ game, item_key: itemKey, quantity }),
     });
     setSellBusyKey(null);
     if (!res.ok) {
@@ -139,13 +146,15 @@ export function CatalogScreen({
 
   // Separate from buy(): price isn't flat here, it doubles with each one
   // already owned, so it hits its own endpoint (see /api/store/expand).
+  // Mining-only — refine's catalog never has an 'expansion' row, so this
+  // branch is simply never reached for game='refine'.
   async function buyExpansion() {
     setBusyKey(EXPANSION_KEY);
     setError("");
     const res = await fetch("/api/store/expand", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game: "mining" }),
+      body: JSON.stringify({ game }),
     });
     setBusyKey(null);
     if (!res.ok) {
@@ -161,13 +170,14 @@ export function CatalogScreen({
   }
 
   // One-time only, unlike the expansion above — see /api/store/equipment-slot.
+  // Mining-only, same reasoning as buyExpansion() above.
   async function buyEquipmentSlot() {
     setBusyKey(EQUIPMENT_SLOT_KEY);
     setError("");
     const res = await fetch("/api/store/equipment-slot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game: "mining" }),
+      body: JSON.stringify({ game }),
     });
     setBusyKey(null);
     if (!res.ok) {
@@ -182,28 +192,8 @@ export function CatalogScreen({
     router.refresh();
   }
 
-  // if (authRequired) {
-  //   return (
-  //     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-  //       <GameHeader section={section} links={[{ href: "/games/mining", label: "Back to run" }]} />
-  //       <main className="mx-auto max-w-xl px-6 py-16 text-center">
-  //         <p className={`text-sm ${ATOMS.textDim}`}>This screen is tied to your account balance.</p>
-  //         <a href="/login" className={`mt-4 inline-block rounded px-5 py-2 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn}`}>
-  //           Sign in
-  //         </a>
-  //       </main>
-  //     </div>
-  //   );
-  // }
-
   return (
     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
-      {/* <GameHeader
-        section={section}
-        stats={[{ label: "balance", value: balance ?? "—" }]}
-        links={headerLinks}
-      /> */}
-
       <main className="mx-auto max-w-6xl px-6 py-8">
         {error && (
           <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>
@@ -233,8 +223,14 @@ export function CatalogScreen({
             // in db/014) — same one-time-gate display as the equipment bay
             // unlock above, just one row per mineral instead of a single row.
             const isLicense = item.category === "license";
+            // Refine's Auto-Decanter (db/017_refine_precision_gear.sql) —
+            // same one-time-gate display, bought through the ordinary
+            // buy() flow below (not a dedicated endpoint like the
+            // equipment bay), so it's excluded from that onBuy branch.
+            const isOneTimeUnlock = item.category === "decanter_unlock";
             const alreadyOwned =
-              (isEquipmentSlotUnlock || isLicense) && owned >= 1;
+              (isEquipmentSlotUnlock || isLicense || isOneTimeUnlock) &&
+              owned >= 1;
             const cost = isExpansion
               ? Number(item.cost) * 2 ** owned
               : Number(item.cost);
@@ -242,7 +238,7 @@ export function CatalogScreen({
             const sellableQuantity = owned - equipped;
             const sellValue =
               item.sellable && item.sell_value != null
-                ? item.category === ORE_CATEGORY
+                ? FLAT_SELL_PRICE_CATEGORIES.has(item.category)
                   ? Number(item.sell_value)
                   : cost * Number(item.sell_value)
                 : undefined;
@@ -279,7 +275,7 @@ export function CatalogScreen({
                 statusValue={
                   isExpansion
                     ? String(owned)
-                    : isEquipmentSlotUnlock || isLicense
+                    : isEquipmentSlotUnlock || isLicense || isOneTimeUnlock
                       ? alreadyOwned
                         ? "✓"
                         : "—"
@@ -288,7 +284,7 @@ export function CatalogScreen({
                 statusCaption={
                   isExpansion
                     ? "slots added"
-                    : isEquipmentSlotUnlock || isLicense
+                    : isEquipmentSlotUnlock || isLicense || isOneTimeUnlock
                       ? alreadyOwned
                         ? "unlocked"
                         : "locked"

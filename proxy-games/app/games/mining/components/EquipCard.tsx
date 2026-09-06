@@ -1,7 +1,7 @@
 "use client";
 
 import { ACCENTS, ATOMS, SURFACE, type Accent } from "@/lib/mining-theme";
-import { PlateStrip } from "@/app/games/mining/components/PlateOverlay";
+import { PlateStrip } from "@/components/game-shell/PlateOverlay";
 
 type EquipCardProps = {
   label: string;

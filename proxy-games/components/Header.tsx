@@ -44,10 +44,18 @@ export default async function Header() {
           {player ? (player.display_name ?? player.email) : "Guest"}
         </span>
         <div className="user-bar-right">
+          <Link href="/games/refine" className="user-link">
+            Refine
+          </Link>
+          <Link href="/games/mining" className="user-link">
+            Extraction
+          </Link>
           <Link href="/inventory" className="user-link">
             Inventory
           </Link>
-          <span className="user-balance">${formatBalance(player?.balance)}</span>
+          <span className="user-balance">
+            ${formatBalance(player?.balance)}
+          </span>
         </div>
       </div>
     </header>

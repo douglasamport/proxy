@@ -19,6 +19,12 @@ export const GAMES: GameMeta[] = [
     tagline: 'One tank of fuel. Fog of war. Find out what you can carry home.',
     status: 'live',
   },
+  {
+    slug: 'refine',
+    title: 'The Refinery',
+    tagline: 'Melt, decant, and cool — everything needs you at once.',
+    status: 'live',
+  },
   // Next game goes here. Nothing else in the app changes.
   // { slug: 'combat', title: '…', tagline: '…', status: 'coming_soon' },
 ];

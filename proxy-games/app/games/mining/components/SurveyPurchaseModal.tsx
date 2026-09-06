@@ -2,7 +2,7 @@
 
 import { CFG } from "@/lib/mining-engine";
 import type { SurveyTier } from "@/lib/mining-engine";
-import { Modal } from "@/app/games/mining/components/Modal";
+import { Modal } from "@/components/game-shell/Modal";
 import { ATOMS, SURFACE } from "@/lib/mining-theme";
 
 interface SurveyPurchaseModalProps {

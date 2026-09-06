@@ -3,7 +3,7 @@
 import { InventoryCardProps } from "@/lib/mining-types";
 
 import { ACCENTS, ATOMS, SURFACE } from "@/lib/mining-theme";
-import { PlateStrip } from "@/app/games/mining/components/PlateOverlay";
+import { PlateStrip } from "@/components/game-shell/PlateOverlay";
 
 export function InventoryCard({
   label,
