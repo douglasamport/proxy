@@ -23,7 +23,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const result = await applyBatchAction(id, player.id, applyDecantAll);
+  const result = await applyBatchAction(id, player.id, applyDecantAll, "decant_all");
   if (result.kind === "not_found") {
     return NextResponse.json({ error: "batch not found" }, { status: 404 });
   }

@@ -14,7 +14,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const result = await applyBatchAction(id, player.id, applyRemoveSlag);
+  const result = await applyBatchAction(id, player.id, applyRemoveSlag, "remove_slag");
   if (result.kind === "not_found") {
     return NextResponse.json({ error: "batch not found" }, { status: 404 });
   }

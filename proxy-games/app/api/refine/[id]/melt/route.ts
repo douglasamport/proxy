@@ -26,8 +26,11 @@ export async function POST(
     return NextResponse.json({ error: "invalid slot" }, { status: 400 });
   }
 
-  const result = await applyBatchAction(id, player.id, (s) =>
-    startMelt(s, slotIndex),
+  const result = await applyBatchAction(
+    id,
+    player.id,
+    (s) => startMelt(s, slotIndex),
+    `melt slot=${slotIndex}`,
   );
   if (result.kind === "not_found") {
     return NextResponse.json({ error: "batch not found" }, { status: 404 });

@@ -23,8 +23,11 @@ export async function POST(
     return NextResponse.json({ error: "invalid amount" }, { status: 400 });
   }
 
-  const result = await applyBatchAction(id, player.id, (s) =>
-    applyVent(s, amount),
+  const result = await applyBatchAction(
+    id,
+    player.id,
+    (s) => applyVent(s, amount),
+    `vent amount=${amount}`,
   );
   if (result.kind === "not_found") {
     return NextResponse.json({ error: "batch not found" }, { status: 404 });

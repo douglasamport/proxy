@@ -269,12 +269,25 @@ export default function RefinePage() {
 
   async function endBatch() {
     if (!batchId) return;
-    const r = await postJSON<{ state: BatchState; summary?: EndSummary }>(
-      `/api/refine/${batchId}/end`,
-    );
-    if (!r.ok) return;
-    setState(r.data.state);
-    if (r.data.summary) setSummary(r.data.summary);
+    // A conflict here means a concurrent /tick save won the race on the
+    // same clock value — harmless, but unlike other actions this one isn't
+    // always retried by a fresh click (the auto-end effect only re-fires
+    // when `state` changes, which a losing /end call never does on its
+    // own). Retry a few times with a short backoff so a single lost race
+    // can't leave the batch stuck showing a terminal status with no
+    // summary until the player reloads the page.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const r = await postJSON<{ state: BatchState; summary?: EndSummary }>(
+        `/api/refine/${batchId}/end`,
+      );
+      if (r.ok) {
+        setState(r.data.state);
+        if (r.data.summary) setSummary(r.data.summary);
+        return;
+      }
+      if (r.status !== 409) return;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
 
   async function playAgain() {
@@ -291,7 +304,7 @@ export default function RefinePage() {
   if (phase === "fitting") {
     const selected = oreOptions.find((o) => o.oreType === selectedOreType);
     return (
-      <main className="mx-auto max-w-md px-6 py-16">
+      <main className="mx-auto max-w-3xl px-6 py-16">
         <h1
           className={`mb-1 font-mono text-lg font-bold uppercase tracking-wide ${ATOMS.textPrimary}`}
         >
@@ -305,45 +318,60 @@ export default function RefinePage() {
           shutdown, but is destroyed on an overheat.
         </p>
 
-        <label className={`${SURFACE.label} mb-1 block`}>mineral</label>
-        <select
-          value={selectedOreType ?? ""}
-          onChange={(e) => setSelectedOreType(e.target.value as OreTypeKey)}
-          className={`mb-4 w-full rounded border ${ATOMS.borderLine} bg-transparent px-3 py-2 font-mono text-sm ${ATOMS.textPrimary}`}
-        >
-          {oreOptions.map((o) => (
-            <option key={o.oreType} value={o.oreType} className="bg-black">
-              {o.label} ({o.available.toLocaleString()} available)
-            </option>
-          ))}
-        </select>
+        <div className="grid grid-cols-1 gap-8 md:grid-cols-[1fr_300px]">
+          <div>
+            <label className={`${SURFACE.label} mb-1 block`}>mineral</label>
+            <select
+              value={selectedOreType ?? ""}
+              onChange={(e) => setSelectedOreType(e.target.value as OreTypeKey)}
+              className={`mb-4 w-full rounded border ${ATOMS.borderLine} bg-transparent px-3 py-2 font-mono text-sm ${ATOMS.textPrimary}`}
+            >
+              {oreOptions.map((o) => (
+                <option key={o.oreType} value={o.oreType} className="bg-black">
+                  {o.label} ({o.available.toLocaleString()} available)
+                </option>
+              ))}
+            </select>
 
-        <div className={`mb-4 rounded-lg p-4 ${SURFACE.well}`}>
-          <div className={`${SURFACE.label} mb-1`}>available ore</div>
-          <div className={`font-mono text-2xl font-bold ${ATOMS.textPrimary}`}>
-            {(selected?.available ?? 0).toLocaleString()}
+            <div className={`mb-4 rounded-lg p-4 ${SURFACE.well}`}>
+              <div className={`${SURFACE.label} mb-1`}>available ore</div>
+              <div className={`font-mono text-2xl font-bold ${ATOMS.textPrimary}`}>
+                {(selected?.available ?? 0).toLocaleString()}
+              </div>
+            </div>
+
+            {error && (
+              <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>
+            )}
+
+            <label className={`${SURFACE.label} mb-1 block`}>batch bid</label>
+            <input
+              type="number"
+              value={bidInput}
+              onChange={(e) => setBidInput(e.target.value)}
+              className={`mb-4 w-full rounded border ${ATOMS.borderLine} bg-transparent px-3 py-2 font-mono text-sm ${ATOMS.textPrimary}`}
+            />
+
+            <button
+              onClick={launch}
+              disabled={busy || !selectedOreType}
+              className={`w-full rounded px-5 py-3 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn} ${SURFACE.btnDisabled} transition hover:brightness-110`}
+            >
+              {busy ? "…" : "Launch batch"}
+            </button>
+          </div>
+
+          <div className={`rounded-lg p-4 text-[12px] leading-relaxed ${SURFACE.well} ${ATOMS.textDim}`}>
+            <strong className={ATOMS.textPrimary}>How a batch works:</strong>
+            <ol className="mt-2 list-decimal space-y-2 pl-4">
+              <li>Melt ore blocks into the vat. Each melt adds heat and dumps in raw ore plus slag.</li>
+              <li>Raw ore separates into ready ore on its own — faster the closer pressure sits to its target.</li>
+              <li>Manage heat, pressure, and slag with the vat heater, vent, remove-slag, and cooler dump controls. Keep all three near their targets for the best decant rate.</li>
+              <li>Decant ready ore into banked output. Better conditions at the moment you decant mean more output per ore spent.</li>
+              <li>Shut the batch down whenever you want to keep what&rsquo;s banked — a deliberate shutdown also returns unmelted ore, but running the vat past its heat ceiling destroys it instead.</li>
+            </ol>
           </div>
         </div>
-
-        {error && (
-          <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>
-        )}
-
-        <label className={`${SURFACE.label} mb-1 block`}>batch bid</label>
-        <input
-          type="number"
-          value={bidInput}
-          onChange={(e) => setBidInput(e.target.value)}
-          className={`mb-4 w-full rounded border ${ATOMS.borderLine} bg-transparent px-3 py-2 font-mono text-sm ${ATOMS.textPrimary}`}
-        />
-
-        <button
-          onClick={launch}
-          disabled={busy || !selectedOreType}
-          className={`w-full rounded px-5 py-3 font-mono text-xs font-bold uppercase tracking-wider ${ATOMS.textVoid} ${ACCENTS.equipment.btn} ${SURFACE.btnDisabled} transition hover:brightness-110`}
-        >
-          {busy ? "…" : "Launch batch"}
-        </button>
       </main>
     );
   }

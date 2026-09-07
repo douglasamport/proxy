@@ -15,6 +15,7 @@ import {
   tick,
   applyShutdown,
   meanDecantQuality,
+  appendLog,
 } from "./refine-engine";
 import type { BatchState, RefineRig, BatchStatus } from "./refine-engine";
 import type { OreTypeKey } from "./mining-engine";
@@ -161,10 +162,20 @@ export type ActiveActionResult =
 // or not the player does anything) using wall-clock time since the row was
 // last saved, THEN applies the player's discrete action on top of that
 // freshly-ticked state. Shared by every /api/refine/[id]/* action route.
+//
+// `action`, when given, is recorded into the batch's log (see
+// lib/refine-engine.ts's LogEntry) as this call's audit-trail entry — the
+// route's own descriptive label (e.g. "vent amount=45"), logged whether or
+// not the action actually succeeded, since a rejected click ("not enough
+// action charge") is exactly the kind of thing worth seeing when a
+// playtester reports a batch behaving oddly. Omitted for a plain poll
+// (pollBatch below) — logging every 400ms tick would drown out the actual
+// player actions in the same log.
 export async function applyBatchAction(
   id: string,
   playerId: string,
   apply: (state: BatchState) => { s: BatchState; err?: string },
+  action?: string,
 ): Promise<ActiveActionResult> {
   const loaded = await loadActiveBatch(id, playerId);
   if (!loaded) return { kind: "not_found" };
@@ -173,6 +184,7 @@ export async function applyBatchAction(
   const dtMs = Math.max(0, Date.now() - new Date(loaded.row.updated_at).getTime());
   const ticked = tick(loaded.state, dtMs);
   const r = apply(ticked);
+  if (action) appendLog(r.s, action, r.err);
 
   const saved = await saveActiveState(id, expectedClock, r.s);
   if (!saved) return { kind: "conflict" };
@@ -192,10 +204,15 @@ export async function endActiveBatch(
   id: string,
   playerId: string,
 ): Promise<ActiveActionResult> {
-  return applyBatchAction(id, playerId, (s) => {
-    if (s.status !== "active") return { s }; // already terminal (overheat caught by an earlier tick)
-    return applyShutdown(s);
-  });
+  return applyBatchAction(
+    id,
+    playerId,
+    (s) => {
+      if (s.status !== "active") return { s }; // already terminal (overheat caught by an earlier tick)
+      return applyShutdown(s);
+    },
+    "shutdown",
+  );
 }
 
 // Writes the permanent `runs` row, returns unmelted ore on a deliberate

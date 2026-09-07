@@ -25,7 +25,7 @@ export async function POST(
     return NextResponse.json({ error: "no coolant flush owned" }, { status: 400 });
   }
 
-  const result = await applyBatchAction(id, player.id, applyUseCoolant);
+  const result = await applyBatchAction(id, player.id, applyUseCoolant, "coolant");
   if (result.kind === "not_found") {
     return NextResponse.json({ error: "batch not found" }, { status: 404 });
   }

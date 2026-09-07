@@ -148,7 +148,45 @@ export interface BatchState {
 
   clock: number; // batch-elapsed ms
   status: BatchStatus;
-  log: string[];
+  log: LogEntry[];
+}
+
+// One entry per player action (plus the passive forced-vent/overheat
+// events raised inside tick()) — the whole point is a post-hoc, per-batch
+// audit trail a developer can pull from runs.move_log when a playtester
+// reports something going wrong, without needing to reproduce it live.
+// Deliberately a flat, self-describing record rather than a free-text
+// string: action already encodes which button and its argument (e.g.
+// "vent amount=45"), and the four gauge values are a snapshot of the vat
+// at the moment the action landed, so a reviewer can see both what was
+// pressed and what state it was pressed in without cross-referencing
+// anything else.
+export interface LogEntry {
+  t: number; // state.clock (batch-elapsed ms) at the time
+  action: string;
+  err?: string;
+  heat: number;
+  pressure: number;
+  slag: number;
+  banked: number;
+}
+
+// Appends one entry to s.log, capped at CFG.LOG_MAX_ENTRIES. Mutates s in
+// place — callers always pass a state that's either a fresh clone() or a
+// per-request deserialization, never shared across requests, so this is
+// safe without the copy-on-write discipline the rest of this file follows
+// for state itself.
+export function appendLog(s: BatchState, action: string, err?: string): void {
+  const entry: LogEntry = {
+    t: Math.round(s.clock),
+    action,
+    heat: Math.round(s.heat),
+    pressure: Math.round(s.pressure),
+    slag: Math.round(s.tankSlag),
+    banked: s.bankedUnits,
+  };
+  if (err) entry.err = err;
+  s.log = [...s.log, entry].slice(-CFG.LOG_MAX_ENTRIES);
 }
 
 /* ============================================================================
@@ -248,10 +286,14 @@ export const CFG = {
   ACTION_COST_DECANT: 10,
   ACTION_COST_MELT_PER_SEC: 14, // drained continuously while held
 
-  // A cap on state.log's length — nothing catastrophic without it at
-  // today's tuning, but an unbounded array serialized into every tick
-  // response is a needless and growing payload over a long batch.
-  LOG_MAX_ENTRIES: 20,
+  // A cap on state.log's length — the log now records every player action
+  // for post-hoc review (see LogEntry), not just forced-vent events, so
+  // this needs real headroom for a long, actively-played batch (dozens to
+  // low hundreds of actions) rather than the earlier 20-entry cap sized
+  // only for a handful of forced vents. Still capped, not unbounded — an
+  // AFK batch racking up repeated forced vents shouldn't grow the tick
+  // response payload without limit.
+  LOG_MAX_ENTRIES: 300,
 
   // Ore per finished unit at *perfect* conditions — constant across every
   // mineral. The skill ceiling doesn't move; only how much a bad decant
@@ -511,7 +553,7 @@ export function createBatch(
     return { block, refillReadyAt: null };
   }) as BatchState["offer"];
 
-  return {
+  const state: BatchState = {
     seed,
     rig,
     oreType,
@@ -538,6 +580,8 @@ export function createBatch(
     status: "active",
     log: [],
   };
+  appendLog(state, `launch oreType=${oreType} bidUnits=${bidUnits}`);
+  return state;
 }
 
 export interface ApplyResult {
@@ -643,10 +687,7 @@ export function tick(state: BatchState, dtMs: number): BatchState {
     s.pressure = 50 + tuning.pressureHalfWidth;
     s.readyOre = 0; // loses already-melted material, strictly worse than raw ore
     s.forcedVents += 1;
-    s.log = [
-      ...s.log,
-      `forced vent at t=${Math.round(s.clock)}ms`,
-    ].slice(-CFG.LOG_MAX_ENTRIES);
+    appendLog(s, "forced_vent");
   }
 
   // --- cooler ---
@@ -673,6 +714,7 @@ export function tick(state: BatchState, dtMs: number): BatchState {
   // --- overheat (hard failure, §6.6) ---
   if (s.heat >= CFG.TANK_HEAT_CEILING) {
     s.status = "overheat";
+    appendLog(s, "overheat");
   }
 
   return s;

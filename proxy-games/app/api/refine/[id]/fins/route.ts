@@ -22,8 +22,11 @@ export async function POST(
     return NextResponse.json({ error: "invalid power" }, { status: 400 });
   }
 
-  const result = await applyBatchAction(id, player.id, (s) =>
-    applySetFinPower(s, power / 100),
+  const result = await applyBatchAction(
+    id,
+    player.id,
+    (s) => applySetFinPower(s, power / 100),
+    `fins power=${power}`,
   );
   if (result.kind === "not_found") {
     return NextResponse.json({ error: "batch not found" }, { status: 404 });

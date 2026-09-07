@@ -22,8 +22,11 @@ export async function POST(
     return NextResponse.json({ error: "invalid rate" }, { status: 400 });
   }
 
-  const result = await applyBatchAction(id, player.id, (s) =>
-    applySetHeaterRate(s, rate),
+  const result = await applyBatchAction(
+    id,
+    player.id,
+    (s) => applySetHeaterRate(s, rate),
+    `heater rate=${rate}`,
   );
   if (result.kind === "not_found") {
     return NextResponse.json({ error: "batch not found" }, { status: 404 });
