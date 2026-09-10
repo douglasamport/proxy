@@ -35,24 +35,35 @@ export default async function Header() {
             </Link>
           )}
         </div>
-        <nav className="nav-right">
-          <Link href="/games">Games</Link>
-        </nav>
+        <div className="flex flex-row  gap-4">
+          <span className="user-name">
+            {player ? (player.display_name ?? player.email) : "Guest"}
+          </span>
+          <nav className="nav-right">
+            <Link href="/games">Games</Link>
+          </nav>
+        </div>
       </div>
-      <div className="user-bar">
-        <span className="user-name">
-          {player ? (player.display_name ?? player.email) : "Guest"}
-        </span>
-        <div className="user-bar-right">
+      <div className="flex items-center justify-between px-5 py-[6px] bg-[#12161b] text-[13px] text-[#8a97a3]">
+        <div className="flex items-center gap-4">
           <Link href="/games/refine" className="user-link">
             Refine
           </Link>
           <Link href="/games/mining" className="user-link">
             Extraction
           </Link>
+          <Link href="/games/expand" className="user-link">
+            Expansion
+          </Link>
+          <Link href="/proxies" className="user-link">
+            Hanger
+          </Link>
           <Link href="/inventory" className="user-link">
             Inventory
           </Link>
+        </div>
+
+        <div className="flex items-center gap-4">
           <span className="user-balance">
             ${formatBalance(player?.balance)}
           </span>

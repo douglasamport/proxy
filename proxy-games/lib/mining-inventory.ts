@@ -1,6 +1,11 @@
 import { sql } from "@/db/client";
-import { CFG, chassisFromEffects } from "./mining-engine";
+import { chassisFromEffects } from "./mining-engine";
 import type { Chassis, OreTypeKey, StatKey } from "./mining-engine";
+import {
+  getActiveProxy,
+  getEquippedTotalAcrossProxies,
+  getSlotTotal,
+} from "./proxy-store";
 
 export interface CatalogItem {
   item_key: string;
@@ -34,11 +39,30 @@ export async function loadCatalog(game: string): Promise<CatalogItem[]> {
   return rows as CatalogItem[];
 }
 
-export async function loadInventory(playerId: string): Promise<InventoryRow[]> {
+// Equipped state for chassis-category gear lives in proxy_loadout, scoped
+// to one specific chassis, not player_inventory — see db/018_proxies.sql.
+// Equipment (single-use field tools) is the one category that stays in
+// player_inventory.equipped_quantity, since it's still a player-wide pool,
+// not chassis-mounted. This merge is what actually fixes the mining/refine
+// slot leak: a refine item never has a proxy_loadout row for this proxy, so
+// its equipped_quantity here is always 0, regardless of what refine itself
+// has equipped.
+export async function loadInventory(
+  playerId: string,
+  proxyId: string,
+): Promise<InventoryRow[]> {
   const rows = await sql`
-    select item_key, owned_quantity, equipped_quantity
-    from player_inventory
-    where player_id = ${playerId}
+    select
+      pi.item_key,
+      pi.owned_quantity,
+      case
+        when ic.category = ${EQUIPMENT_CATEGORY} then pi.equipped_quantity
+        else coalesce(pl.equipped_quantity, 0)
+      end as equipped_quantity
+    from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    left join proxy_loadout pl on pl.item_key = pi.item_key and pl.proxy_id = ${proxyId}
+    where pi.player_id = ${playerId}
   `;
   return rows as InventoryRow[];
 }
@@ -126,7 +150,16 @@ export async function sellItem(
   if (!row) return { kind: "not_found" };
   if (!row.sellable || row.sell_value == null) return { kind: "not_sellable" };
 
-  const available = row.owned_quantity - row.equipped_quantity;
+  // Chassis gear's "reserved" count now lives in proxy_loadout, not
+  // player_inventory.equipped_quantity (see loadInventory above) — has to
+  // be summed across every proxy the player owns, not just one, so selling
+  // an owned copy can never leave a chassis with more equipped than owned.
+  const reserved =
+    row.category === EQUIPMENT_CATEGORY
+      ? row.equipped_quantity
+      : await getEquippedTotalAcrossProxies(playerId, itemKey);
+
+  const available = row.owned_quantity - reserved;
   if (quantity > available) return { kind: "insufficient_owned" };
 
   const unitPrice = FLAT_SELL_PRICE_CATEGORIES.has(row.category)
@@ -161,8 +194,8 @@ export const EQUIPMENT_CATEGORY = "equipment";
 
 // Mined ore, stockpiled at run-end instead of collected as credits (see
 // settleRun in mining-run-store.ts). Never equippable, unlimited quantity —
-// same non-equip shape as EXPANSION_ITEM_KEY below, just one row per ore
-// type instead of a single row.
+// same non-equip shape as proxy-store.ts's chassis_expansion row, just one row
+// per ore type instead of a single row.
 export const ORE_CATEGORY = "ore";
 
 // One-time per-mineral unlocks (see db/013_mineral_licences.sql and the
@@ -199,8 +232,16 @@ export async function loadUnlockedOreTypes(
 // the ownership check and the slot-cap check is an acceptable tradeoff
 // here (worst case, a concurrent double-click briefly exceeds the cap by
 // one before the next read corrects it).
+// Equipment stays keyed by playerId (its own player-wide pool, unaffected
+// by any of this — see EQUIPMENT_CATEGORY). Every other category is chassis
+// gear, capped and stored per-proxy via proxy_loadout — this is the actual
+// fix for the old mining/refine slot leak: refine's parts never had a
+// category here, so they always fell into the "not equipment" branch below
+// and were capped and stored exactly like chassis gear, in the same
+// player-wide pool refine itself was drawing from.
 export async function setEquipped(
   playerId: string,
+  proxyId: string,
   itemKey: string,
   quantity: number,
 ): Promise<SetEquippedResult> {
@@ -212,83 +253,45 @@ export async function setEquipped(
   `;
   if (!row || quantity < 0 || quantity > row.owned_quantity) return "not_owned";
 
-  const isEquipment = row.category === EQUIPMENT_CATEGORY;
-  const cap = isEquipment
-    ? await getEquipmentSlotTotal(playerId)
-    : await getSlotTotal(playerId);
+  if (row.category === EQUIPMENT_CATEGORY) {
+    const cap = await getEquipmentSlotTotal(playerId);
+    const [{ total }] = await sql`
+      select coalesce(sum(pi.equipped_quantity), 0)::int as total
+      from player_inventory pi
+      join item_catalog ic on ic.item_key = pi.item_key
+      where pi.player_id = ${playerId} and pi.item_key != ${itemKey}
+        and ic.category = ${EQUIPMENT_CATEGORY}
+    `;
+    if (total + quantity > cap) return "over_cap";
 
-  // Scoped to the same pool the item being changed belongs to — an
-  // equipment item's count never competes with chassis gear, and vice versa.
+    await sql`
+      update player_inventory set equipped_quantity = ${quantity}, updated_at = now()
+      where player_id = ${playerId} and item_key = ${itemKey}
+    `;
+    return "ok";
+  }
+
+  // Scoped to game = 'mining' too, not just proxy_id — a proxy the player
+  // has chosen to share across games (see the /proxies picker) can carry
+  // equipped rows for other games in the same proxy_loadout table, and
+  // those must never count against mining's own slot cap.
+  const cap = await getSlotTotal(proxyId);
   const [{ total }] = await sql`
-    select coalesce(sum(pi.equipped_quantity), 0)::int as total
-    from player_inventory pi
-    join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and pi.item_key != ${itemKey}
-      and (ic.category = ${EQUIPMENT_CATEGORY}) = ${isEquipment}
+    select coalesce(sum(pl.equipped_quantity), 0)::int as total
+    from proxy_loadout pl
+    join item_catalog ic on ic.item_key = pl.item_key
+    where pl.proxy_id = ${proxyId} and pl.item_key != ${itemKey}
+      and ic.category != ${EQUIPMENT_CATEGORY} and ic.game = 'mining'
   `;
   if (total + quantity > cap) return "over_cap";
 
   await sql`
-    update player_inventory set equipped_quantity = ${quantity}, updated_at = now()
-    where player_id = ${playerId} and item_key = ${itemKey}
+    insert into proxy_loadout (proxy_id, item_key, equipped_quantity)
+    values (${proxyId}, ${itemKey}, ${quantity})
+    on conflict (proxy_id, item_key)
+    do update set equipped_quantity = excluded.equipped_quantity, updated_at = now()
   `;
   return "ok";
-}
-
-// Not equippable like everything else — owning one permanently raises
-// slot capacity by exactly 1, always in effect. Its equipped_quantity
-// stays 0 forever (see purchaseChassisExpansion()) so it never counts
-// against the very cap it's expanding.
-export const EXPANSION_ITEM_KEY = "chassis_expansion";
-
-export async function getSlotTotal(playerId: string): Promise<number> {
-  const [row] = await sql`
-    select owned_quantity from player_inventory
-    where player_id = ${playerId} and item_key = ${EXPANSION_ITEM_KEY}
-  `;
-  return CFG.SLOT_TOTAL + (row?.owned_quantity ?? 0);
-}
-
-// Each expansion costs double the last one — the catalog's `cost` for
-// chassis_expansion is just the base price (the first one); the doubling
-// itself is the mechanic, not data, so it lives here rather than as a
-// stored-per-purchase number. +1 slot capacity, always, no equip step.
-export async function purchaseChassisExpansion(
-  playerId: string,
-  game: string,
-): Promise<PurchaseItemResult> {
-  const [item] =
-    await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and game = ${game} and active = true`;
-  if (!item) return { kind: "not_found" };
-
-  const [owned] = await sql`
-    select owned_quantity from player_inventory
-    where player_id = ${playerId} and item_key = ${EXPANSION_ITEM_KEY}
-  `;
-  const level = owned?.owned_quantity ?? 0;
-  const cost = Number(item.cost) * 2 ** level;
-
-  const [deducted] = await sql`
-    update players set balance = balance - ${cost}
-    where id = ${playerId} and balance >= ${cost}
-    returning balance
-  `;
-  if (!deducted) return { kind: "insufficient_funds" };
-
-  await sql.transaction([
-    sql`
-      insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
-      values (${playerId}, ${EXPANSION_ITEM_KEY}, 1, 0)
-      on conflict (player_id, item_key)
-      do update set owned_quantity = player_inventory.owned_quantity + 1, updated_at = now()
-    `,
-    sql`
-      insert into balance_transactions (player_id, game, reason, delta)
-      values (${playerId}, ${game}, 'chassis_expansion', ${-cost})
-    `,
-  ]);
-
-  return { kind: "ok", balance: deducted.balance };
 }
 
 // A single, very expensive slot for single-use field tools (ore siphon,
@@ -418,13 +421,19 @@ export const STARTER_KIT: Record<string, number> = {
 };
 
 export async function grantStarterKit(playerId: string): Promise<void> {
-  const writes = Object.entries(STARTER_KIT).map(
-    ([itemKey, quantity]) => sql`
-      insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
-      values (${playerId}, ${itemKey}, ${quantity}, ${quantity})
+  const proxy = await getActiveProxy(playerId, "mining");
+  const writes = Object.entries(STARTER_KIT).flatMap(([itemKey, quantity]) => [
+    sql`
+      insert into player_inventory (player_id, item_key, owned_quantity)
+      values (${playerId}, ${itemKey}, ${quantity})
       on conflict (player_id, item_key) do nothing
     `,
-  );
+    sql`
+      insert into proxy_loadout (proxy_id, item_key, equipped_quantity)
+      values (${proxy.id}, ${itemKey}, ${quantity})
+      on conflict (proxy_id, item_key) do nothing
+    `,
+  ]);
   await sql.transaction(writes);
 }
 
@@ -456,7 +465,7 @@ function addEffects(
 // hands it to the pure chassisFromEffects() — this is the one place
 // inventory (DB) and engine (pure functions) meet.
 export async function computeEffects(
-  playerId: string,
+  proxyId: string,
 ): Promise<Partial<Record<StatKey, number>>> {
   const [baselineRows, equippedRows] = await Promise.all([
     sql`
@@ -464,10 +473,10 @@ export async function computeEffects(
       where item_key in (${BASELINE_DRIVE}, ${BASELINE_STEER}, ${BASELINE_ARMOUR}, ${BASELINE_CARGO})
     `,
     sql`
-      select ic.effects, pi.equipped_quantity
-      from player_inventory pi
-      join item_catalog ic on ic.item_key = pi.item_key
-      where pi.player_id = ${playerId} and pi.equipped_quantity > 0
+      select ic.effects, pl.equipped_quantity
+      from proxy_loadout pl
+      join item_catalog ic on ic.item_key = pl.item_key
+      where pl.proxy_id = ${proxyId} and pl.equipped_quantity > 0 and ic.game = 'mining'
     `,
   ]);
 
@@ -499,21 +508,31 @@ export async function computeEffects(
   return effects;
 }
 
-export async function computeChassis(playerId: string): Promise<Chassis> {
-  return chassisFromEffects(await computeEffects(playerId));
+export async function computeChassis(proxyId: string): Promise<Chassis> {
+  return chassisFromEffects(await computeEffects(proxyId));
 }
 
 // Snapshot of what's actually equipped at launch time, for runs.config —
-// replaces the old { alloc } shape.
+// replaces the old { alloc } shape. Chassis gear comes from proxy_loadout
+// (this specific chassis); equipment is still the player-wide pool, so it's
+// unioned in separately.
 export async function loadoutSnapshot(
   playerId: string,
+  proxyId: string,
 ): Promise<{ item_key: string; quantity: number }[]> {
   const rows = await sql`
-    select item_key, equipped_quantity from player_inventory
-    where player_id = ${playerId} and equipped_quantity > 0
+    select pl.item_key, pl.equipped_quantity as quantity
+    from proxy_loadout pl
+    join item_catalog ic on ic.item_key = pl.item_key
+    where pl.proxy_id = ${proxyId} and pl.equipped_quantity > 0 and ic.game = 'mining'
+    union all
+    select pi.item_key, pi.equipped_quantity as quantity
+    from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    where pi.player_id = ${playerId} and ic.category = ${EQUIPMENT_CATEGORY} and pi.equipped_quantity > 0
   `;
   return rows.map((r) => ({
     item_key: r.item_key,
-    quantity: r.equipped_quantity,
+    quantity: r.quantity,
   }));
 }

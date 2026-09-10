@@ -51,9 +51,26 @@ export const InventoryContext = createContext<InventoryContextType | null>(
 // don't read those fields, they only use catalog/inventory/balance/load.
 export function InventoryProvider({
   game,
+  apiPath,
+  equipmentCategories = [EQUIPMENT_CATEGORY],
   children,
 }: {
   game: string;
+  // Defaults to the shared /api/inventory?game= route (mining, refine).
+  // Land-clearing has its own route instead — a different chassis shape
+  // (see lib/land-clearing-engine.ts's Chassis) and its own starter-kit
+  // logic live behind it — so it passes its own path here. CatalogScreen
+  // never reads `chassis` directly, so the type mismatch is harmless: this
+  // context's `chassis` field is typed for mining/refine, but a consumer
+  // that only needs catalog/inventory/balance/load works with either shape.
+  apiPath?: string;
+  // Which catalog categories count as the "second pool" (equippedEquipmentTotal
+  // / equipmentSlotTotal) rather than the general chassis pool
+  // (equippedChassisTotal / slotTotal). Mining's is a single category
+  // ('equipment' — ore siphon, line scanner); land-clearing's weapon mounts
+  // are the same shape but three categories (weapon/ranged/aoe — see
+  // db/022_weapon_mounts.sql), so this needed to become a list.
+  equipmentCategories?: string[];
   children: React.ReactNode;
 }) {
   const [equipmentSlotTotal, setEquipmentSlotTotal] = useState(0);
@@ -65,7 +82,7 @@ export function InventoryProvider({
   const [authRequired, setAuthRequired] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/inventory?game=${game}`);
+    const res = await fetch(apiPath ?? `/api/inventory?game=${game}`);
     if (!res.ok) {
       if (res.status === 401) setAuthRequired(true);
       return;
@@ -78,7 +95,7 @@ export function InventoryProvider({
     setChassis(data.chassis);
     setSlotTotal(data.slotTotal);
     setEquipmentSlotTotal(data.equipmentSlotTotal);
-  }, [game]);
+  }, [game, apiPath]);
 
   const didLoadRef = useRef(false);
   useEffect(() => {
@@ -96,7 +113,7 @@ export function InventoryProvider({
   let equippedEquipmentTotal = 0;
   for (const row of inventory) {
     if (row.equipped_quantity <= 0) continue;
-    if (catByKey.get(row.item_key)?.category === EQUIPMENT_CATEGORY)
+    if (equipmentCategories.includes(catByKey.get(row.item_key)?.category ?? ""))
       equippedEquipmentTotal += row.equipped_quantity;
     else equippedChassisTotal += row.equipped_quantity;
   }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { currentPlayer } from "@/lib/auth";
 import { loadCatalog, loadInventory } from "@/lib/mining-inventory";
+import { getActiveProxy } from "@/lib/proxy-store";
 import { InventoryGrid } from "../../components/InventoryGrid";
 import type { OwnedItem } from "../../components/InventoryGrid";
 
@@ -29,9 +30,10 @@ export default async function InventoryPage() {
     );
   }
 
+  const proxy = await getActiveProxy(player.id, "mining");
   const [catalog, inventory] = await Promise.all([
     loadCatalog("mining"),
-    loadInventory(player.id),
+    loadInventory(player.id, proxy.id),
   ]);
   const byKey = new Map(catalog.map((c) => [c.item_key, c]));
   const items: OwnedItem[] = inventory

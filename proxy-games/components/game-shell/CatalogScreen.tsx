@@ -13,9 +13,9 @@ import { accentForCategory, ATOMS } from "@/lib/mining-theme";
 import { useInventory } from "./InventoryContext";
 
 // Not imported as a value from lib/mining-inventory.ts — that module pulls
-// in the DB client, which has no business in a client bundle. Just string
-// keys, duplicated here the same way 'mining'/'refine' (the game slug) is.
-const EXPANSION_KEY = "chassis_expansion";
+// in the DB client, which has no business in a client bundle. Just a
+// string key, duplicated here the same way 'mining'/'refine' (the game
+// slug) is.
 const EQUIPMENT_SLOT_KEY = "equipment_slot_unlock";
 // Mirrors FLAT_SELL_PRICE_CATEGORIES in lib/mining-inventory.ts — these
 // categories' sell_value is an absolute credit price, not a ratio of the
@@ -54,12 +54,32 @@ export interface CatalogScreenProps {
   game: string;
   categoryFilter: (category: string) => boolean;
   buyDisabledReason?: (item: CatalogItem) => string | undefined;
+  // Land-clearing needs its own sell endpoint — its 'scrap' category has a
+  // flat sell price mining-inventory.ts's sellItem() doesn't know about
+  // (that route's FLAT_SELL_PRICE_CATEGORIES only covers 'ore'/'refined');
+  // see app/api/expand/inventory/sell/route.ts. Buy has no such
+  // wrinkle — purchaseItem() is already fully game-generic — so only sell
+  // is overridable.
+  sellPath?: string;
+  // Category -> endpoint for doubling-price, buy-as-many-as-you-want
+  // capacity purchases (mining's chassis_expansion; land-clearing's own
+  // slot pool AND its separate weapon_mounts pool — see
+  // db/022_weapon_mounts.sql). Each such category shows owned-count instead
+  // of a quantity modal and posts straight to its own endpoint with no body
+  // beyond `game`.
+  doublingPriceEndpoints?: Record<string, string>;
 }
+
+const DEFAULT_DOUBLING_PRICE_ENDPOINTS: Record<string, string> = {
+  expansion: '/api/store/expand',
+};
 
 export function CatalogScreen({
   game,
   categoryFilter,
   buyDisabledReason,
+  sellPath = '/api/store/sell',
+  doublingPriceEndpoints = DEFAULT_DOUBLING_PRICE_ENDPOINTS,
 }: CatalogScreenProps) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL);
@@ -139,7 +159,7 @@ export function CatalogScreen({
   async function sell(itemKey: string, quantity: number) {
     setSellBusyKey(itemKey);
     setError("");
-    const res = await fetch("/api/store/sell", {
+    const res = await fetch(sellPath, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ game, item_key: itemKey, quantity }),
@@ -159,13 +179,13 @@ export function CatalogScreen({
   }
 
   // Separate from buy(): price isn't flat here, it doubles with each one
-  // already owned, so it hits its own endpoint (see /api/store/expand).
-  // Mining-only — refine's catalog never has an 'expansion' row, so this
-  // branch is simply never reached for game='refine'.
-  async function buyExpansion() {
-    setBusyKey(EXPANSION_KEY);
+  // already owned, so each such category hits its own endpoint (see
+  // doublingPriceEndpoints above) rather than the ordinary quantity-aware
+  // buy() path.
+  async function buyDoublingPrice(category: string) {
+    setBusyKey(category);
     setError("");
-    const res = await fetch("/api/store/expand", {
+    const res = await fetch(doublingPriceEndpoints[category], {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ game }),
@@ -225,7 +245,7 @@ export function CatalogScreen({
           {shown.map((item) => {
             const owned = ownedByKey.get(item.item_key) ?? 0;
             const equipped = equippedByKey.get(item.item_key) ?? 0;
-            const isExpansion = item.category === "expansion";
+            const isExpansion = item.category in doublingPriceEndpoints;
             // Only the literal one-time unlock item — NOT the whole
             // 'equipment' category. Ore siphon and line scanner live in
             // 'equipment' too, but they're ordinary repeat-buy consumables
@@ -307,7 +327,7 @@ export function CatalogScreen({
                 }
                 onBuy={() =>
                   isExpansion
-                    ? buyExpansion()
+                    ? buyDoublingPrice(item.category)
                     : setBuyTarget({
                         item_key: item.item_key,
                         label: item.label,

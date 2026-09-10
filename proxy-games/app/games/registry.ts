@@ -9,24 +9,30 @@ export type GameMeta = {
   slug: string;
   title: string;
   tagline: string;
-  status: 'live' | 'coming_soon';
+  status: "live" | "coming_soon";
 };
 
 export const GAMES: GameMeta[] = [
   {
-    slug: 'mining',
-    title: 'Extraction',
-    tagline: 'One tank of fuel. Fog of war. Find out what you can carry home.',
-    status: 'live',
+    slug: "mining",
+    title: "Extraction",
+    tagline: "One tank of fuel. Fog of war. Find out what you can carry home.",
+    status: "live",
   },
   {
-    slug: 'refine',
-    title: 'The Refinery',
-    tagline: 'Melt, decant, and cool — everything needs you at once.',
-    status: 'live',
+    slug: "refine",
+    title: "The Refinery",
+    tagline: "Melt, decant, and cool — everything needs you at once.",
+    status: "live",
+  },
+  {
+    slug: "expand",
+    title: "Expansion",
+    tagline:
+      "Wilderness left alone only gets stronger. Clear the parcel before it clears you.",
+    status: "live",
   },
   // Next game goes here. Nothing else in the app changes.
-  // { slug: 'combat', title: '…', tagline: '…', status: 'coming_soon' },
 ];
 
 export function getGame(slug: string) {

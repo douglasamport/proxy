@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { currentPlayer } from '@/lib/auth';
-import { getSlotTotal, purchaseChassisExpansion } from '@/lib/mining-inventory';
+import { getActiveProxy, purchaseChassisExpansion } from '@/lib/proxy-store';
 
 // POST { game } -> { balance, slotTotal } | error
 // Separate from POST /api/store/buy because the price isn't flat — each
@@ -16,10 +16,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'missing game' }, { status: 400 });
   }
 
-  const result = await purchaseChassisExpansion(player.id, game);
+  const proxy = await getActiveProxy(player.id, game);
+  const result = await purchaseChassisExpansion(player.id, proxy.id, game);
   if (result.kind === 'not_found') return NextResponse.json({ error: 'expansion not available' }, { status: 404 });
   if (result.kind === 'insufficient_funds') return NextResponse.json({ error: 'insufficient funds' }, { status: 402 });
 
-  const slotTotal = await getSlotTotal(player.id);
-  return NextResponse.json({ balance: result.balance, slotTotal });
+  return NextResponse.json({ balance: result.balance, slotTotal: result.slotTotal });
 }

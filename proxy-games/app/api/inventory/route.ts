@@ -3,11 +3,11 @@ import { currentPlayer } from '@/lib/auth';
 import {
   computeChassis,
   getEquipmentSlotTotal,
-  getSlotTotal,
   loadCatalog,
   loadEquipmentAvailable,
   loadInventory,
 } from '@/lib/mining-inventory';
+import { getActiveProxy, getSlotTotal } from '@/lib/proxy-store';
 
 // GET /api/inventory?game=mining ->
 //   { catalog, inventory, balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable }
@@ -27,16 +27,18 @@ export async function GET(req: NextRequest) {
   const game = req.nextUrl.searchParams.get('game');
   if (!game) return NextResponse.json({ error: 'missing game' }, { status: 400 });
 
+  const proxy = await getActiveProxy(player.id, game);
   const [catalog, inventory, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable] = await Promise.all([
     loadCatalog(game),
-    loadInventory(player.id),
-    computeChassis(player.id),
-    getSlotTotal(player.id),
+    loadInventory(player.id, proxy.id),
+    computeChassis(proxy.id),
+    getSlotTotal(proxy.id),
     getEquipmentSlotTotal(player.id),
     loadEquipmentAvailable(player.id),
   ]);
 
   return NextResponse.json({
     catalog, inventory, balance: player.balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable,
+    proxyId: proxy.id,
   });
 }
