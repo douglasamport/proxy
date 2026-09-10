@@ -7,7 +7,7 @@ import type { CatalogItem } from "@/lib/mining-inventory";
 import { categoryIcon, FullBuildIcon } from "@/components/game-shell/icons";
 import { GameHeader } from "@/components/game-shell/GameHeader";
 import { FilterBar } from "@/components/game-shell/FilterBar";
-import { EquipCard } from "@/app/games/mining/components/EquipCard";
+import { EquipCard } from "@/components/EquipCard";
 import { StatsPanel } from "@/app/games/mining/components/StatsPanel";
 import { accentForCategory, ATOMS } from "@/lib/mining-theme";
 import { useInventory } from "../layout";

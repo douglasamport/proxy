@@ -208,7 +208,7 @@ export function CatalogScreen({
   }
 
   return (
-    <div className={`min-h-screen ${ATOMS.bgVoid}`}>
+    <div className={`min-h-screen ${ATOMS.bgVoid} catalogue-container`}>
       <main className="mx-auto max-w-6xl px-6 py-8">
         {error && (
           <div className={`mb-4 text-sm ${ATOMS.textDanger}`}>{error}</div>
@@ -221,7 +221,10 @@ export function CatalogScreen({
           onChange={setFilter}
         />
 
-        <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
+        {/* <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
+         */}
+
+        <div className="flex flex-col gap-6">
           {shown.map((item) => {
             const owned = ownedByKey.get(item.item_key) ?? 0;
             const equipped = equippedByKey.get(item.item_key) ?? 0;
