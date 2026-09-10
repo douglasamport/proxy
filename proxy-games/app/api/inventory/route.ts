@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   const [catalog, inventory, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable] = await Promise.all([
     loadCatalog(game),
-    loadInventory(player.id),
+    loadInventory(player.id, game),
     computeChassis(player.id),
     getSlotTotal(player.id),
     getEquipmentSlotTotal(player.id),

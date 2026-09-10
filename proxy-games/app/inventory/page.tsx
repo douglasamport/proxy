@@ -31,7 +31,7 @@ export default async function InventoryPage() {
 
   const [catalog, inventory] = await Promise.all([
     loadCatalog("mining"),
-    loadInventory(player.id),
+    loadInventory(player.id, "mining"),
   ]);
   const byKey = new Map(catalog.map((c) => [c.item_key, c]));
   const items: OwnedItem[] = inventory

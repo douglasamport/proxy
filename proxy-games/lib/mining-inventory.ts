@@ -34,11 +34,22 @@ export async function loadCatalog(game: string): Promise<CatalogItem[]> {
   return rows as CatalogItem[];
 }
 
-export async function loadInventory(playerId: string): Promise<InventoryRow[]> {
+// Scoped to `game`, not just `player_id` — player_inventory has no game
+// column of its own (only item_catalog does), and a player owns/equips
+// items across every game from the same shared table. Without this join,
+// a game's inventory read (and the equipped-count math built on top of it,
+// client-side in InventoryContext.tsx) silently includes every other
+// game's equipped items too — see setEquipped()'s cap-check query below
+// for the matching fix on the write side.
+export async function loadInventory(
+  playerId: string,
+  game: string,
+): Promise<InventoryRow[]> {
   const rows = await sql`
-    select item_key, owned_quantity, equipped_quantity
-    from player_inventory
-    where player_id = ${playerId}
+    select pi.item_key, pi.owned_quantity, pi.equipped_quantity
+    from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    where pi.player_id = ${playerId} and ic.game = ${game}
   `;
   return rows as InventoryRow[];
 }
@@ -208,7 +219,7 @@ export async function setEquipped(
     select pi.owned_quantity, ic.category
     from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and pi.item_key = ${itemKey}
+    where pi.player_id = ${playerId} and pi.item_key = ${itemKey} and ic.game = 'mining'
   `;
   if (!row || quantity < 0 || quantity > row.owned_quantity) return "not_owned";
 
@@ -217,13 +228,19 @@ export async function setEquipped(
     ? await getEquipmentSlotTotal(playerId)
     : await getSlotTotal(playerId);
 
-  // Scoped to the same pool the item being changed belongs to — an
-  // equipment item's count never competes with chassis gear, and vice versa.
+  // Scoped to the same pool the item being changed belongs to (equipment
+  // vs chassis gear) AND to game = 'mining' — player_inventory has no game
+  // column of its own, so without this a refine item equipped anywhere
+  // (e.g. its starter kit, granted into this same shared table — see
+  // grantRefineStarterKit() in lib/refine-inventory.ts) silently counts
+  // against mining's chassis-slot cap too. This is the exact bug behind
+  // new players landing on a 16/10-filled Build screen: 10 mining starter
+  // items + 6 refine starter items, summed together with no game boundary.
   const [{ total }] = await sql`
     select coalesce(sum(pi.equipped_quantity), 0)::int as total
     from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and pi.item_key != ${itemKey}
+    where pi.player_id = ${playerId} and pi.item_key != ${itemKey} and ic.game = 'mining'
       and (ic.category = ${EQUIPMENT_CATEGORY}) = ${isEquipment}
   `;
   if (total + quantity > cap) return "over_cap";
@@ -467,7 +484,7 @@ export async function computeEffects(
       select ic.effects, pi.equipped_quantity
       from player_inventory pi
       join item_catalog ic on ic.item_key = pi.item_key
-      where pi.player_id = ${playerId} and pi.equipped_quantity > 0
+      where pi.player_id = ${playerId} and pi.equipped_quantity > 0 and ic.game = 'mining'
     `,
   ]);
 
@@ -509,8 +526,10 @@ export async function loadoutSnapshot(
   playerId: string,
 ): Promise<{ item_key: string; quantity: number }[]> {
   const rows = await sql`
-    select item_key, equipped_quantity from player_inventory
-    where player_id = ${playerId} and equipped_quantity > 0
+    select pi.item_key, pi.equipped_quantity
+    from player_inventory pi
+    join item_catalog ic on ic.item_key = pi.item_key
+    where pi.player_id = ${playerId} and pi.equipped_quantity > 0 and ic.game = 'mining'
   `;
   return rows.map((r) => ({
     item_key: r.item_key,
