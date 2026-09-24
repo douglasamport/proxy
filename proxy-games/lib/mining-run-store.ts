@@ -4,7 +4,7 @@ import {
   CFG,
   atBase,
   heldUnits,
-  oreGradeValue,
+  oreBreakdown,
   returnCost,
   runAI,
   score,
@@ -16,12 +16,14 @@ import type {
   DirKey,
   LogEntry,
   OreLoad,
-  OreTypeKey,
   RunState,
   RunStatus,
   ScoreResult,
   SurveyTier,
 } from "./mining-engine";
+
+import type { OreTypeKey, OreData } from "./mining-inventory";
+import { loadOreData } from "./mining-inventory";
 
 // Server-side row for an in-progress run. `state` is the full authoritative
 // RunState (only present once phase === 'active') — this never leaves the
@@ -64,6 +66,18 @@ function deserializeState(raw: unknown): RunState {
   state.w ??= CFG.BLOCK_W;
   state.h ??= CFG.BLOCK_H;
   state.unlockedOreTypes ??= ["copper"];
+  state.oreData ??= {
+    copper: {
+      key: "copper",
+      label: "Copper",
+      sell_value: "6.5",
+      tier: 1,
+      grade_values: [0, 1, 3, 8, 20],
+      value_multiplier: 1,
+      depth_gate: 0,
+      adds_map_size: 0,
+    },
+  };
   CFG.W = state.w;
   CFG.H = state.h;
   return state;
@@ -266,10 +280,18 @@ export async function settleRun(
   row: RunRow,
   state: RunState,
   choice: SettleChoice = "credits",
+  oreData: Record<string, OreData>,
 ): Promise<{ you: ScoreResult; ai: ScoreResult }> {
-  const you = score(state);
+  const you = score(state, oreData);
   const ai = score(
-    runAI(state.seed, state.chassis, state.energyStart, state.unlockedOreTypes),
+    runAI(
+      state.seed,
+      state.chassis,
+      oreData,
+      state.energyStart,
+      state.unlockedOreTypes,
+    ),
+    oreData,
   );
 
   const runId = randomUUID();
@@ -286,37 +308,16 @@ export async function settleRun(
   ];
 
   if (choice === "ore") {
-    // Grouped by ore type and valued the same way "collect credits" values
-    // it — units * grade value * ORE_PRICE, see score() — then converted
-    // into a flat-priced quantity via that ore's item_catalog.sell_value.
-    // Dividing by the same price a later sale would use is what makes
-    // stockpile-then-sell worth exactly what collecting credits now would
-    // have paid (see Stage 3 of build-spec-ore-progression.md: "cash-in
-    // price and sell price are identical").
-    const revenueByType = new Map<OreTypeKey, number>();
-    for (const load of state.banked) {
-      const revenue =
-        load.units * oreGradeValue(load.oreType, load.grade) * CFG.ORE_PRICE;
-      revenueByType.set(
-        load.oreType,
-        (revenueByType.get(load.oreType) ?? 0) + revenue,
-      );
-    }
-    const oreTypes = Array.from(revenueByType.keys());
-    const priceRows = oreTypes.length
-      ? await sql`select item_key, sell_value from item_catalog where item_key = any(${oreTypes})`
-      : [];
-    const sellPriceByType = new Map(
-      priceRows.map((r) => [r.item_key as string, Number(r.sell_value)]),
-    );
-    for (const [oreType, revenue] of revenueByType) {
-      const sellPrice = sellPriceByType.get(oreType);
-      if (!sellPrice) continue; // not in the catalog / no price set — nothing to stockpile
-      const quantity = Math.round(revenue / sellPrice);
-      if (quantity <= 0) continue;
+    // Grouped and priced by oreBreakdown() (lib/mining-engine.ts) — the
+    // same function the /end route uses to preview this before the player
+    // has chosen anything, so the preview and the real commit can never
+    // disagree. oreData already carries sell_value (see loadOreData() in
+    // mining-inventory.ts), so this no longer needs its own separate query.
+    for (const breakdownRow of oreBreakdown(state.banked, oreData)) {
+      if (breakdownRow.derivedUnits <= 0) continue; // no sell_value, or nothing to stockpile
       statements.push(sql`
         insert into player_inventory (player_id, item_key, owned_quantity)
-        values (${row.player_id}, ${oreType}, ${quantity})
+        values (${row.player_id}, ${breakdownRow.oreType}, ${breakdownRow.derivedUnits})
         on conflict (player_id, item_key)
         do update set owned_quantity = player_inventory.owned_quantity + excluded.owned_quantity, updated_at = now()
       `);
@@ -363,8 +364,10 @@ export async function settleAbandonedRuns(
     where player_id = ${playerId} and game = ${game} and phase = 'active'
       and state->>'status' <> 'active'
   `;
+
+  const oreData = await loadOreData();
   for (const row of rows as RunRow[]) {
-    await settleRun(row, deserializeState(row.state));
+    await settleRun(row, deserializeState(row.state), "credits", oreData);
   }
 }
 

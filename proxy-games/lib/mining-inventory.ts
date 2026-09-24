@@ -1,6 +1,6 @@
 import { sql } from "@/db/client";
 import { CFG, chassisFromEffects } from "./mining-engine";
-import type { Chassis, OreTypeKey, StatKey } from "./mining-engine";
+import type { Chassis, StatKey } from "./mining-engine";
 
 export interface CatalogItem {
   item_key: string;
@@ -16,6 +16,31 @@ export interface CatalogItem {
   // Ore: a flat credit price. Everything else: a ratio of `cost` (0.5 =
   // sells back at 50%) — see db/011_sell_prices.sql. Null when !sellable.
   sell_value: string | null;
+}
+
+export interface OreTypeMeta {
+  tier: number;
+  grade_values: number[];
+  value_multiplier: number;
+  depth_gate: number;
+  adds_map_size: number;
+}
+
+export interface OreCatalogRow {
+  item_key: string;
+  game: string;
+  category: string;
+  label: string;
+  description: string | null;
+  cost: string;
+  effects: Partial<Record<StatKey, number>>;
+  active: boolean;
+  image_url: string | null;
+  sellable: boolean;
+  sell_value: string | null;
+  item_meta: { mining: OreTypeMeta } | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface InventoryRow {
@@ -182,6 +207,56 @@ export const ORE_CATEGORY = "ore";
 // flow; the store UI (not a dedicated endpoint) is what stops a player from
 // buying a second one. Item keys are 'license_<ore>'.
 export const LICENSE_CATEGORY = "license";
+
+export async function getOreItems(): Promise<OreCatalogRow[]> {
+  const rows = await sql`
+
+    select * from item_catalog
+    where category='ore'
+  `;
+
+  return rows as OreCatalogRow[];
+}
+
+// Which mineral, not how good this particular pocket of it is — that's
+// `grade` below. See build-spec-ore-progression.md, Stage 1.
+export type OreTypeKey =
+  | "copper"
+  | "zinc"
+  | "iron"
+  | "silver"
+  | "gold"
+  | "platinum"
+  | "silica"
+  | "germanium"
+  | "cadmium"
+  | "neodymium"
+  | "yttrium"
+  | "lanthanum"
+  | "tantalum";
+
+export interface OreData extends OreTypeMeta {
+  key: OreTypeKey;
+  label: string;
+  sell_value: string | null;
+}
+
+export async function loadOreData(): Promise<Record<string, OreData>> {
+  const rows = await getOreItems();
+
+  return rows.reduce<Record<string, OreData>>((a, c) => {
+    if (!c.item_meta?.mining) return a;
+
+    a[c.item_key] = {
+      key: c.item_key as OreTypeKey,
+      label: c.label,
+      sell_value: c.sell_value,
+      ...c.item_meta.mining,
+    };
+
+    return a;
+  }, {});
+}
 
 // Every mineral eligible for field generation for this player — copper is
 // always included, since it's unlocked from the start and never gated by a

@@ -18,7 +18,8 @@ import {
   appendLog,
 } from "./refine-engine";
 import type { BatchState, RefineRig, BatchStatus } from "./refine-engine";
-import type { OreTypeKey } from "./mining-engine";
+import type { OreTypeKey } from "./mining-inventory";
+import { loadOreData } from "./mining-inventory";
 import {
   GAME,
   oreItemKey,
@@ -140,7 +141,8 @@ export async function launchBatch(
   }
 
   await debitOre(playerId, oreType, bidUnits);
-  const state = createBatch(fitting.seed, rig, bidUnits, oreType);
+  const oreData = await loadOreData();
+  const state = createBatch(fitting.seed, rig, bidUnits, oreType, oreData);
 
   await sql`
     update in_progress_runs
@@ -181,7 +183,10 @@ export async function applyBatchAction(
   if (!loaded) return { kind: "not_found" };
 
   const expectedClock = loaded.state.clock;
-  const dtMs = Math.max(0, Date.now() - new Date(loaded.row.updated_at).getTime());
+  const dtMs = Math.max(
+    0,
+    Date.now() - new Date(loaded.row.updated_at).getTime(),
+  );
   const ticked = tick(loaded.state, dtMs);
   const r = apply(ticked);
   if (action) appendLog(r.s, action, r.err);

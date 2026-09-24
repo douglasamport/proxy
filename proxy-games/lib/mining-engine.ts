@@ -2,7 +2,7 @@
 // (run-prototype.html). Pure functions only: no DOM, no Math.random outside
 // mulberry32, no Date.now. Portable into a server context for replay
 // verification later (see app/api/runs/route.ts).
-
+import type { OreTypeKey, OreData } from "./mining-inventory.ts";
 export type SurveyTier = "none" | "basic" | "full";
 export type DirKey = "N" | "S" | "E" | "W";
 export type RunStatus = "active" | "banked" | "stranded" | "wrecked";
@@ -37,8 +37,15 @@ export interface Chassis {
 // once — a sensor array affects range, blur, and ping cost together —
 // which is why item_catalog.effects is a map, not a single number.
 export type StatKey =
-  | "fuelCap" | "hold" | "sinkCap" | "speed" | "movement"
-  | "sensorRange" | "sensorBlur" | "pingFuel" | "analyser"
+  | "fuelCap"
+  | "hold"
+  | "sinkCap"
+  | "speed"
+  | "movement"
+  | "sensorRange"
+  | "sensorBlur"
+  | "pingFuel"
+  | "analyser"
   | "fuelEfficiency";
 
 export interface Point {
@@ -46,53 +53,13 @@ export interface Point {
   y: number;
 }
 
-// Which mineral, not how good this particular pocket of it is — that's
-// `grade` below. See build-spec-ore-progression.md, Stage 1.
-export type OreTypeKey =
-  | "copper" | "zinc" | "iron"
-  | "silver" | "gold" | "platinum"
-  | "silica" | "germanium" | "cadmium"
-  | "neodymium" | "yttrium" | "lanthanum" | "tantalum";
-
-export interface OreType {
-  key: OreTypeKey;
-  label: string;
-  tier: number; // rarity class 1-4: Common / Precious / Semiconductor / Rare-earth
-  grade_values: number[]; // indexed by Cell.grade (1-4); index 0 unused
-  value_multiplier: number;
-  depth_gate: number; // normalised base distance at which this ore becomes eligible
-  adds_map_size: number;
-}
-
-// Full taxonomy from Stage 1. Copper's grade_values stay the engine's
-// pre-existing GRADE_VALUE curve, not the taxonomy doc's 1/2/8/20 spread —
-// that was Stage 1's deliberate "identical gameplay" call, since copper is
-// the only ore that ever existed before Stage 6. Every other ore is
-// brand-new data with no legacy behaviour to preserve, so it uses the
-// taxonomy's numbers directly. depth_gate is the per-tier table from Stage
-// 1 ("Depth gates"); adds_map_size is 2 for every non-rare mineral except
-// copper (already unlocked at start, contributes no bonus) and 0 for rare
-// earth — see the "Map scaling" table, which this reproduces exactly.
-export const ORE_TYPES: Record<OreTypeKey, OreType> = {
-  copper: { key: "copper", label: "Copper", tier: 1, grade_values: [0, 1, 3, 8, 20], value_multiplier: 1, depth_gate: 0, adds_map_size: 0 },
-  zinc: { key: "zinc", label: "Zinc", tier: 1, grade_values: [0, 1, 2, 8, 20], value_multiplier: 1.5, depth_gate: 0, adds_map_size: 2 },
-  iron: { key: "iron", label: "Iron", tier: 1, grade_values: [0, 1, 2, 8, 20], value_multiplier: 2, depth_gate: 0, adds_map_size: 2 },
-  silver: { key: "silver", label: "Silver", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 5, depth_gate: 0.35, adds_map_size: 2 },
-  gold: { key: "gold", label: "Gold", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 8, depth_gate: 0.35, adds_map_size: 2 },
-  platinum: { key: "platinum", label: "Platinum", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 12, depth_gate: 0.35, adds_map_size: 2 },
-  silica: { key: "silica", label: "Silica", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 20, depth_gate: 0.55, adds_map_size: 2 },
-  germanium: { key: "germanium", label: "Germanium", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 28, depth_gate: 0.55, adds_map_size: 2 },
-  cadmium: { key: "cadmium", label: "Cadmium", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 35, depth_gate: 0.55, adds_map_size: 2 },
-  neodymium: { key: "neodymium", label: "Neodymium", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 60, depth_gate: 0.72, adds_map_size: 0 },
-  yttrium: { key: "yttrium", label: "Yttrium", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 80, depth_gate: 0.72, adds_map_size: 0 },
-  lanthanum: { key: "lanthanum", label: "Lanthanum", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 100, depth_gate: 0.72, adds_map_size: 0 },
-  tantalum: { key: "tantalum", label: "Tantalum", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 130, depth_gate: 0.72, adds_map_size: 0 },
-};
-
-export function oreGradeValue(oreType: OreTypeKey, grade: number): number {
-  const t = ORE_TYPES[oreType];
-  return t.grade_values[grade] * t.value_multiplier;
-}
+// The full ore taxonomy used to live here as a hardcoded ORE_TYPES
+// constant. It's now item_catalog.item_meta in the DB (see
+// db/018_add_item_meta.sql and loadOreData() in lib/mining-inventory.ts) —
+// every function below takes the resulting table as an `oreData` parameter
+// instead of reaching for a module-level constant, so this file stays
+// DB-free and synchronous; the DB read happens one layer up, in the API
+// route calling in.
 
 export interface Pocket extends Point {
   grade: number;
@@ -173,6 +140,7 @@ export interface RunState {
   w: number;
   h: number;
   unlockedOreTypes: OreTypeKey[];
+  oreData: Record<string, OreData>;
   cells: Cell[];
   base: Point;
   x: number;
@@ -319,7 +287,6 @@ export const CFG = {
   GRADE_VALUE: [0, 1, 3, 8, 20],
 
   // economics — target ~20% of revenue consumed by fuel + repair
-  ORE_PRICE: 6.5,
   LAUNCH_COST: 150, // flat cost to put the rig on site — the reason to claim big
   // Surveys: bought before the run. They locate metal, never terrain, never grade.
   SURVEY: {
@@ -394,7 +361,9 @@ export function mulberry32(a: number): () => number {
 // derived from a freely-chosen allocation. Callers with no items equipped
 // get an all-zero effects map, which correctly yields a non-functional
 // chassis (0 fuel, 0 hold, can't move) rather than a free baseline.
-export function chassisFromEffects(effects: Partial<Record<StatKey, number>>): Chassis {
+export function chassisFromEffects(
+  effects: Partial<Record<StatKey, number>>,
+): Chassis {
   const e = (k: StatKey) => effects[k] ?? 0;
   return {
     fuelCap: CFG.BASE_FUEL + e("fuelCap"),
@@ -424,12 +393,15 @@ export const inBounds = (x: number, y: number) =>
 // build-spec-ore-progression.md — every unlocked mineral adds its
 // adds_map_size (2 for non-rare, 0 for copper and rare earth) to both
 // dimensions. Reproduces the spec's map-scaling table exactly.
-export function fieldDims(unlockedOreTypes: OreTypeKey[]): {
+export function fieldDims(
+  unlockedOreTypes: OreTypeKey[],
+  oreData: Record<string, OreData>,
+): {
   W: number;
   H: number;
 } {
   const bonus = unlockedOreTypes.reduce(
-    (n, k) => n + (ORE_TYPES[k]?.adds_map_size ?? 0),
+    (n, k) => n + (oreData[k]?.adds_map_size ?? 0),
     0,
   );
   return { W: CFG.BLOCK_W + bonus, H: CFG.BLOCK_H + bonus };
@@ -461,23 +433,26 @@ function scatter(
 function pickOreType(
   unlocked: OreTypeKey[],
   depth: number,
+  oreData: Record<string, OreData>,
   rng: () => number,
 ): OreTypeKey {
-  const eligible = unlocked.filter((k) => depth >= ORE_TYPES[k].depth_gate);
+  const eligible = unlocked.filter((k) => depth >= oreData[k].depth_gate);
   if (eligible.length === 0) return "copper";
-  const weights = eligible.map((k) => 1 / ORE_TYPES[k].value_multiplier);
+  const weights = eligible.map((k) => 1 / oreData[k].value_multiplier);
   const total = weights.reduce((a, b) => a + b, 0);
   let roll = rng() * total;
   for (let i = 0; i < eligible.length; i++) {
     roll -= weights[i];
     if (roll <= 0) return eligible[i];
   }
+  console.log(eligible, "eligible");
   return eligible[eligible.length - 1];
 }
 
 export function generateField(
   seed: number,
   unlockedOreTypes: OreTypeKey[],
+  oreData: Record<string, OreData>,
 ): {
   cells: Cell[];
   base: Point;
@@ -501,7 +476,7 @@ export function generateField(
     const roll = rng() + d * 0.5;
     let grade = roll < 0.4 ? 1 : roll < 0.7 ? 2 : roll < 0.92 ? 3 : 4;
     while (grade > 1 && d < CFG.TIER_GATE[grade]) grade--;
-    const oreType = pickOreType(unlockedOreTypes, d, rng);
+    const oreType = pickOreType(unlockedOreTypes, d, oreData, rng);
     return { ...p, grade, oreType };
   });
   const seams = scatter(rng, per(CFG.SEAM_CLUSTERS_PER_100), base, 2.2);
@@ -609,12 +584,13 @@ export function surveyReport(
   seed: number,
   tier: SurveyTier,
   unlockedOreTypes: OreTypeKey[],
+  oreData: Record<string, OreData>,
 ): SurveyReport | null {
   if (tier === "none") return null;
-  const dims = fieldDims(unlockedOreTypes);
+  const dims = fieldDims(unlockedOreTypes, oreData);
   CFG.W = dims.W;
   CFG.H = dims.H;
-  const f = generateField(seed, unlockedOreTypes);
+  const f = generateField(seed, unlockedOreTypes, oreData);
   const tmp = { cells: f.cells, base: f.base } as RunState;
   const groups = oreClusters(tmp);
   const maxD = Math.hypot(CFG.W - 1, CFG.H - 1);
@@ -692,13 +668,14 @@ export function applySurvey(
 export function createRun(
   seed: number,
   chassis: Chassis,
+  oreData: Record<string, OreData>,
   energy?: number,
   unlockedOreTypes: OreTypeKey[] = ["copper"],
 ): RunState {
-  const dims = fieldDims(unlockedOreTypes);
+  const dims = fieldDims(unlockedOreTypes, oreData);
   CFG.W = dims.W;
   CFG.H = dims.H; // prototype: field dims are global per run
-  const f = generateField(seed, unlockedOreTypes);
+  const f = generateField(seed, unlockedOreTypes, oreData);
   const claim = energy ?? CFG.ENERGY;
   return {
     seed,
@@ -706,6 +683,7 @@ export function createRun(
     w: dims.W,
     h: dims.H,
     unlockedOreTypes,
+    oreData,
     cells: f.cells,
     base: f.base,
     x: f.base.x,
@@ -1031,7 +1009,14 @@ export function oreClusters(s: RunState): OreCluster[] {
     const grade = Math.round(
       group.reduce((n, g) => n + g.grade * g.units, 0) / mass,
     );
-    out.push({ cx, cy, mass, oreType: group[0].oreType, grade, cells: group.length });
+    out.push({
+      cx,
+      cy,
+      mass,
+      oreType: group[0].oreType,
+      grade,
+      cells: group.length,
+    });
   }
   return out;
 }
@@ -1256,13 +1241,81 @@ export function applyEnd(state: RunState, force?: boolean): ApplyResult {
   return { s };
 }
 
-export function score(s: RunState): ScoreResult {
+// Real cash value of one raw unit at this grade — grade_values[grade] is
+// how many effective sellable units a raw unit at this grade counts as
+// (g1 barely counts, g4 counts many times over), times the ore's actual
+// sell_value (item_catalog, DB-sourced via oreData). sell_value is the one
+// place ore pricing lives; nothing here reads CFG.ORE_PRICE or
+// value_multiplier — those stay out so a DB price change actually reaches
+// live runs instead of being shadowed by a hardcoded parallel price.
+export function oreGradeValue(
+  oreType: OreTypeKey,
+  grade: number,
+  oreData: Record<string, OreData>,
+): number {
+  const t = oreData[oreType];
+  const sellValue = t.sell_value != null ? Number(t.sell_value) : 0;
+  return t.grade_values[grade] * sellValue;
+}
+
+export interface OreBreakdownRow {
+  oreType: OreTypeKey;
+  label: string;
+  units: number;
+  revenue: number;
+  sellValue: number | null;
+  // Stockpile-quantity preview — the same conversion settleRun() actually
+  // commits when the player chooses "Stockpile ore": round(revenue /
+  // sellValue). Dividing by the same price a later sale would use is what
+  // makes stockpile-then-sell worth exactly what collecting credits now
+  // would have paid (Stage 3 of build-spec-ore-progression.md).
+  derivedUnits: number;
+}
+
+// One row per ore type actually banked, most units first. Shared by the
+// /end route (a preview, before the player has chosen anything) and
+// settleRun (the real commit) so the two can never compute this
+// differently — see the OreBreakdownRow comment above.
+export function oreBreakdown(
+  banked: OreLoad[],
+  oreData: Record<string, OreData>,
+): OreBreakdownRow[] {
+  const totals = new Map<OreTypeKey, { units: number; revenue: number }>();
+  for (const load of banked) {
+    const revenue = load.units * oreGradeValue(load.oreType, load.grade, oreData);
+    const prev = totals.get(load.oreType) ?? { units: 0, revenue: 0 };
+    totals.set(load.oreType, {
+      units: prev.units + load.units,
+      revenue: prev.revenue + revenue,
+    });
+  }
+  return Array.from(totals.entries())
+    .map(([oreType, { units, revenue }]) => {
+      const data = oreData[oreType];
+      const sellValue =
+        data?.sell_value != null ? Number(data.sell_value) : null;
+      return {
+        oreType,
+        label: data?.label ?? oreType,
+        units,
+        revenue,
+        sellValue,
+        derivedUnits: sellValue ? Math.round(revenue / sellValue) : 0,
+      };
+    })
+    .sort((a, b) => b.units - a.units);
+}
+
+export function score(
+  s: RunState,
+  oreData: Record<string, OreData>,
+): ScoreResult {
   const units = s.banked.reduce((n, o) => n + o.units, 0);
   const value = s.banked.reduce(
-    (n, o) => n + o.units * oreGradeValue(o.oreType, o.grade),
+    (n, o) => n + o.units * oreGradeValue(o.oreType, o.grade, oreData),
     0,
   );
-  const revenue = value * CFG.ORE_PRICE;
+  const revenue = value;
   const fuelCost = s.fuelUsed * CFG.FUEL_PRICE;
   const repair = s.sinkLost * CFG.REPAIR_PER_SINK;
   // Survey is paid for upfront now (see purchaseSurvey() in
@@ -1298,10 +1351,11 @@ export function score(s: RunState): ScoreResult {
 export function runAI(
   seed: number,
   chassis: Chassis,
+  oreData: Record<string, OreData>,
   energy?: number,
   unlockedOreTypes: OreTypeKey[] = ["copper"],
 ): RunState {
-  let s = createRun(seed, chassis, energy, unlockedOreTypes);
+  let s = createRun(seed, chassis, oreData, energy, unlockedOreTypes);
   s = applySurvey(s, CFG.AI_SURVEY, true);
   s = applyPing(s).s;
   // A committed goal. Re-deciding every step makes the baseline oscillate between
@@ -1387,7 +1441,7 @@ export function runAI(
       s = stepHome(s);
       continue;
     }
-    let target = pickTarget(s, chassis);
+    let target = pickTarget(s, chassis, oreData);
     if (
       !target &&
       s.step >= s.pingReady &&
@@ -1396,7 +1450,7 @@ export function runAI(
       const r = applyPing(s);
       if (!r.err) {
         s = r.s;
-        target = pickTarget(s, chassis);
+        target = pickTarget(s, chassis, oreData);
       }
     }
     if (target) {
@@ -1406,7 +1460,7 @@ export function runAI(
     }
     {
       // head for the best contact the survey or a ping gave us
-      const k = contactTarget(s, chassis);
+      const k = contactTarget(s, chassis, oreData);
       if (k && (k.x !== s.x || k.y !== s.y)) {
         goal = { x: k.x, y: k.y, kind: "contact" };
         s = stepToward(s, goal.x, goal.y);
@@ -1454,7 +1508,11 @@ function aiKnows(s: RunState, c: Cell): boolean {
 // The baseline drives toward its best unresolved contact — but only one it can
 // actually reach and still get home from. A survey without this check just makes
 // the autopilot strand itself further from base.
-function contactTarget(s: RunState, chassis: Chassis): Point | null {
+function contactTarget(
+  s: RunState,
+  chassis: Chassis,
+  oreData: Record<string, OreData>,
+): Point | null {
   let best: Point | null = null,
     bs = 0;
   for (const k of s.contacts) {
@@ -1466,8 +1524,7 @@ function contactTarget(s: RunState, chassis: Chassis): Point | null {
     if (s.fuel < (reach + home) * 1.2 + 4) continue;
     const take = Math.min(k.mass, chassis.hold);
     if (reach > chassis.fuelCap * CFG.AI_REACH * 1.4) continue;
-    const gain =
-      take * oreGradeValue(k.oreType, Math.max(1, k.grade)) * CFG.ORE_PRICE;
+    const gain = take * oreGradeValue(k.oreType, Math.max(1, k.grade), oreData);
     const spend = reach * CFG.FUEL_PRICE;
     if (gain <= spend * CFG.AI_MARGIN) continue;
     const sc = take / (reach + 10);
@@ -1479,7 +1536,11 @@ function contactTarget(s: RunState, chassis: Chassis): Point | null {
   return best;
 }
 
-function pickTarget(s: RunState, chassis: Chassis): Cell | null {
+function pickTarget(
+  s: RunState,
+  chassis: Chassis,
+  oreData: Record<string, OreData>,
+): Cell | null {
   let best: Cell | null = null,
     bestScore = 0;
   const room = chassis.hold - heldUnits(s);
@@ -1512,7 +1573,7 @@ function pickTarget(s: RunState, chassis: Chassis): Cell | null {
     // cherry-picking the best seams and closing the skill gap. The cap is what keeps
     // it local and lazy, which is the whole point of a baseline.
     if (reach > chassis.fuelCap * CFG.AI_REACH) continue;
-    const gain = take * oreGradeValue(c.oreType, c.grade) * CFG.ORE_PRICE;
+    const gain = take * oreGradeValue(c.oreType, c.grade, oreData);
     const spend = (reach + extractFuel(s)) * CFG.FUEL_PRICE;
     if (gain <= spend * CFG.AI_MARGIN) continue;
     const sc = take / (reach + 1);

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { currentPlayer } from '@/lib/auth';
-import { assignNewField } from '@/lib/mining-run-store';
-import { loadUnlockedOreTypes } from '@/lib/mining-inventory';
-import { fieldDims } from '@/lib/mining-engine';
+import { NextRequest, NextResponse } from "next/server";
+import { currentPlayer } from "@/lib/auth";
+import { assignNewField } from "@/lib/mining-run-store";
+import { loadUnlockedOreTypes, loadOreData } from "@/lib/mining-inventory";
+import { fieldDims } from "@/lib/mining-engine";
 
 // POST { game, seed? } -> { runId, balance }
 //
@@ -20,24 +20,26 @@ import { fieldDims } from '@/lib/mining-engine';
 export async function POST(req: NextRequest) {
   const player = await currentPlayer({ touch: false });
   if (!player) {
-    return NextResponse.json({ error: 'not signed in' }, { status: 401 });
+    return NextResponse.json({ error: "not signed in" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => ({}));
   const { game, seed: requestedSeed } = body;
 
-  if (typeof game !== 'string' || !game) {
-    return NextResponse.json({ error: 'missing game' }, { status: 400 });
+  if (typeof game !== "string" || !game) {
+    return NextResponse.json({ error: "missing game" }, { status: 400 });
   }
 
-  const seed = process.env.NODE_ENV !== 'production' && typeof requestedSeed === 'number'
-    ? requestedSeed
-    : Math.floor(Math.random() * 9000) + 1000;
+  const seed =
+    process.env.NODE_ENV !== "production" && typeof requestedSeed === "number"
+      ? requestedSeed
+      : Math.floor(Math.random() * 9000) + 1000;
 
-  const [{ runId, balance }, unlockedOreTypes] = await Promise.all([
+  const [{ runId, balance }, unlockedOreTypes, oreData] = await Promise.all([
     assignNewField(player.id, game, seed),
     loadUnlockedOreTypes(player.id),
+    loadOreData(),
   ]);
-  const dims = fieldDims(unlockedOreTypes);
+  const dims = fieldDims(unlockedOreTypes, oreData);
   return NextResponse.json({ runId, balance, dims });
 }

@@ -1,4 +1,4 @@
-import type { OreTypeKey } from "./mining-engine";
+import type { OreTypeKey } from "./mining-inventory";
 
 /**
  * Single source of truth for colour across proxy-games.

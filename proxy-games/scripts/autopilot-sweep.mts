@@ -13,17 +13,77 @@
 //   node scripts/autopilot-sweep.mts 300 50                # 300 seeds, 50E claim, all 5 unlock levels
 //   node scripts/autopilot-sweep.mts 300 35 "Copper only"  # just one unlock level — see UNLOCK_LEVELS below
 
-import { runAI, score, chassisFromEffects, fieldDims } from '../lib/mining-engine.ts';
-import type { Chassis, OreTypeKey, StatKey } from '../lib/mining-engine.ts';
+import {
+  runAI,
+  score,
+  chassisFromEffects,
+  fieldDims,
+} from "../lib/mining-engine.ts";
+import type { Chassis, StatKey } from "../lib/mining-engine.ts";
+import type { OreTypeKey } from "../lib/mining-inventory.ts";
+import type { OreData } from "../lib/mining-inventory.ts";
+
+// Ore taxonomy, copied from item_catalog.item_meta (as of this writing —
+// see db/018_add_item_meta.sql and loadOreData() in lib/mining-inventory.ts)
+// rather than read from the DB, same "stays dependency-free on purpose"
+// tradeoff this script already accepts for BASIC_EFFECTS below. If the
+// catalog's ore data changes, update here too. sell_value is what
+// oreGradeValue() actually prices ore at (lib/mining-engine.ts) — it drives
+// every dollar figure sweep() reports, not just stockpile math.
+const ORE_DATA: Record<string, OreData> = {
+  copper: { key: "copper", label: "Copper", sell_value: "6.5", tier: 1, grade_values: [0, 1, 3, 8, 20], value_multiplier: 1, depth_gate: 0, adds_map_size: 0 },
+  zinc: { key: "zinc", label: "Zinc", sell_value: "9.75", tier: 1, grade_values: [0, 1, 2, 8, 20], value_multiplier: 1.5, depth_gate: 0, adds_map_size: 2 },
+  iron: { key: "iron", label: "Iron", sell_value: "13", tier: 1, grade_values: [0, 1, 2, 8, 20], value_multiplier: 2, depth_gate: 0, adds_map_size: 2 },
+  silver: { key: "silver", label: "Silver", sell_value: "32.5", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 5, depth_gate: 0.35, adds_map_size: 2 },
+  gold: { key: "gold", label: "Gold", sell_value: "52", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 8, depth_gate: 0.35, adds_map_size: 2 },
+  platinum: { key: "platinum", label: "Platinum", sell_value: "78", tier: 2, grade_values: [0, 1, 2, 6, 18], value_multiplier: 12, depth_gate: 0.35, adds_map_size: 2 },
+  silica: { key: "silica", label: "Silica", sell_value: "130", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 20, depth_gate: 0.55, adds_map_size: 2 },
+  germanium: { key: "germanium", label: "Germanium", sell_value: "182", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 28, depth_gate: 0.55, adds_map_size: 2 },
+  cadmium: { key: "cadmium", label: "Cadmium", sell_value: "227.5", tier: 3, grade_values: [0, 1, 2, 5, 15], value_multiplier: 35, depth_gate: 0.55, adds_map_size: 2 },
+  neodymium: { key: "neodymium", label: "Neodymium", sell_value: "390", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 60, depth_gate: 0.72, adds_map_size: 0 },
+  yttrium: { key: "yttrium", label: "Yttrium", sell_value: "520", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 80, depth_gate: 0.72, adds_map_size: 0 },
+  lanthanum: { key: "lanthanum", label: "Lanthanum", sell_value: "650", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 100, depth_gate: 0.72, adds_map_size: 0 },
+  tantalum: { key: "tantalum", label: "Tantalum", sell_value: "845", tier: 4, grade_values: [0, 1, 2, 4, 8], value_multiplier: 130, depth_gate: 0.72, adds_map_size: 0 },
+};
 
 // The 5 unlock levels from Stage 6's acceptance table (build-spec-ore-
 // progression.md) — copper is always unlocked, the rest ramp up by tier.
 const UNLOCK_LEVELS: [string, OreTypeKey[]][] = [
-  ['Copper only', ['copper']],
-  ['All tier 1', ['copper', 'zinc', 'iron']],
-  ['Tiers 1-2', ['copper', 'zinc', 'iron', 'silver', 'gold', 'platinum']],
-  ['Tiers 1-3', ['copper', 'zinc', 'iron', 'silver', 'gold', 'platinum', 'silica', 'germanium', 'cadmium']],
-  ['All tiers', ['copper', 'zinc', 'iron', 'silver', 'gold', 'platinum', 'silica', 'germanium', 'cadmium', 'neodymium', 'yttrium', 'lanthanum', 'tantalum']],
+  ["Copper only", ["copper"]],
+  ["All tier 1", ["copper", "zinc", "iron"]],
+  ["Tiers 1-2", ["copper", "zinc", "iron", "silver", "gold", "platinum"]],
+  [
+    "Tiers 1-3",
+    [
+      "copper",
+      "zinc",
+      "iron",
+      "silver",
+      "gold",
+      "platinum",
+      "silica",
+      "germanium",
+      "cadmium",
+    ],
+  ],
+  [
+    "All tiers",
+    [
+      "copper",
+      "zinc",
+      "iron",
+      "silver",
+      "gold",
+      "platinum",
+      "silica",
+      "germanium",
+      "cadmium",
+      "neodymium",
+      "yttrium",
+      "lanthanum",
+      "tantalum",
+    ],
+  ],
 ];
 
 // Per-unit effects of each basic item, copied from item_catalog (as of this
@@ -33,7 +93,7 @@ const BASIC_EFFECTS: Record<string, Partial<Record<StatKey, number>>> = {
   fuel: { fuelCap: 24 },
   cargo: { hold: 5 },
   armour: { sinkCap: 12 },
-  drive: { speed: 0.20 },
+  drive: { speed: 0.2 },
   steer: { movement: 0.22 },
   sensor: { sensorRange: 1.9, sensorBlur: -0.38, pingFuel: -0.35 },
   analyser: { analyser: -0.8 },
@@ -43,12 +103,18 @@ const BASIC_EFFECTS: Record<string, Partial<Record<StatKey, number>>> = {
 // whatever's bought — see BASELINE_* in lib/mining-inventory.ts. Mirrored
 // here (not imported — that logic lives behind a DB call) so this script's
 // numbers match what a player with this purchase history would actually get.
-const FREE_BASELINE: Record<string, number> = { drive: 1, steer: 1, armour: 1, cargo: 1 };
+const FREE_BASELINE: Record<string, number> = {
+  drive: 1,
+  steer: 1,
+  armour: 1,
+  cargo: 1,
+};
 
 function buildChassis(bought: Record<string, number>): Chassis {
   const effects: Partial<Record<StatKey, number>> = {};
   const total = { ...bought };
-  for (const [k, qty] of Object.entries(FREE_BASELINE)) total[k] = (total[k] ?? 0) + qty;
+  for (const [k, qty] of Object.entries(FREE_BASELINE))
+    total[k] = (total[k] ?? 0) + qty;
   for (const [k, qty] of Object.entries(total)) {
     const per = BASIC_EFFECTS[k];
     if (!per || !qty) continue;
@@ -68,8 +134,14 @@ function buildChassis(bought: Record<string, number>): Chassis {
 // free-baseline 5 forced far more round trips than the extra fuel/drive
 // could pay for. Revised: one fuel and one drive moved to cargo instead.
 const BUILDS: Record<string, Record<string, number>> = {
-  'Player baseline (2 steer, 3 drive, 3 cargo, 5 fuel, 1 armour)': { steer: 2, drive: 3, cargo: 3, fuel: 5, armour: 1 },
-  'Autopilot (3 drive, 5 fuel, 2 cargo)': { drive: 3, fuel: 5, cargo: 2 },
+  "Player baseline (2 steer, 3 drive, 3 cargo, 5 fuel, 1 armour)": {
+    steer: 2,
+    drive: 3,
+    cargo: 3,
+    fuel: 5,
+    armour: 1,
+  },
+  "Autopilot (3 drive, 5 fuel, 2 cargo)": { drive: 3, fuel: 5, cargo: 2 },
 };
 
 const N = Number(process.argv[2]) || 300;
@@ -82,21 +154,33 @@ const LEVELS = LEVEL_FILTER
   ? UNLOCK_LEVELS.filter(([label]) => label === LEVEL_FILTER)
   : UNLOCK_LEVELS;
 
-function sweep(chassis: Chassis, n: number, claim: number, unlockedOreTypes: OreTypeKey[]) {
+function sweep(
+  chassis: Chassis,
+  n: number,
+  claim: number,
+  unlockedOreTypes: OreTypeKey[],
+  oreData: Record<string, OreData>,
+) {
   let losses = 0;
-  let gradeSum = 0, gradeCount = 0;
+  let gradeSum = 0,
+    gradeCount = 0;
   let claimSpentSum = 0;
-  let netSum = 0, netMin = Infinity, netMax = -Infinity;
+  let netSum = 0,
+    netMin = Infinity,
+    netMax = -Infinity;
   let unitsSum = 0;
   const statusCounts: Record<string, number> = {};
 
   for (let i = 0; i < n; i++) {
     const seed = 100000 + i; // sequential, deterministic — reproducible across runs for before/after comparison
-    const state = runAI(seed, chassis, claim, unlockedOreTypes);
-    const r = score(state);
+    const state = runAI(seed, chassis, oreData, claim, unlockedOreTypes);
+    const r = score(state, oreData);
 
     if (r.net < 0) losses++;
-    if (r.units > 0) { gradeSum += r.grade; gradeCount++; }
+    if (r.units > 0) {
+      gradeSum += r.grade;
+      gradeCount++;
+    }
     claimSpentSum += r.claimSpent;
     netSum += r.net;
     netMin = Math.min(netMin, r.net);
@@ -105,13 +189,25 @@ function sweep(chassis: Chassis, n: number, claim: number, unlockedOreTypes: Ore
     statusCounts[r.status] = (statusCounts[r.status] ?? 0) + 1;
   }
 
-  console.log(`Losing-run rate      ${((losses / n) * 100).toFixed(1)}%  (Stage 7's target: <10%)`);
-  console.log(`Average grade        ${gradeCount ? (gradeSum / gradeCount).toFixed(2) : 'n/a'}`);
-  console.log(`Claim fill rate      ${((claimSpentSum / n) * 100).toFixed(1)}%  (energy spent / claimed)`);
+  console.log(
+    `Losing-run rate      ${((losses / n) * 100).toFixed(1)}%  (Stage 7's target: <10%)`,
+  );
+  console.log(
+    `Average grade        ${gradeCount ? (gradeSum / gradeCount).toFixed(2) : "n/a"}`,
+  );
+  console.log(
+    `Claim fill rate      ${((claimSpentSum / n) * 100).toFixed(1)}%  (energy spent / claimed)`,
+  );
   console.log(`Average units banked ${(unitsSum / n).toFixed(1)}`);
   console.log(`Average net          ${(netSum / n).toFixed(1)}`);
-  console.log(`Net range            ${netMin.toFixed(0)} .. ${netMax.toFixed(0)}`);
-  console.log(`Status breakdown     ${Object.entries(statusCounts).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
+  console.log(
+    `Net range            ${netMin.toFixed(0)} .. ${netMax.toFixed(0)}`,
+  );
+  console.log(
+    `Status breakdown     ${Object.entries(statusCounts)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ")}`,
+  );
 }
 
 // "did this stage change the numbers at all" is Stages 1-6's bar, not the
@@ -120,13 +216,17 @@ function sweep(chassis: Chassis, n: number, claim: number, unlockedOreTypes: Ore
 // since Stage 6 acceptance is specifically about how these numbers move
 // *across* levels, not any single one of them.
 for (const [levelLabel, unlockedOreTypes] of LEVELS) {
-  const dims = fieldDims(unlockedOreTypes);
-  console.log(`\n${'='.repeat(70)}\n${levelLabel} — field ${dims.W}x${dims.H}\n${'='.repeat(70)}`);
+  const dims = fieldDims(unlockedOreTypes, ORE_DATA);
+  console.log(
+    `\n${"=".repeat(70)}\n${levelLabel} — field ${dims.W}x${dims.H}\n${"=".repeat(70)}`,
+  );
   for (const [label, bought] of Object.entries(BUILDS)) {
     const chassis = buildChassis(bought);
     console.log(`\n${label} — ${N} seeds, ${CLAIM}E claim`);
-    console.log(`  fuelCap ${chassis.fuelCap} · hold ${chassis.hold} · sink ${chassis.sinkCap} · speed ${chassis.speed.toFixed(2)} · movement ${chassis.movement.toFixed(2)}`);
-    console.log('-'.repeat(56));
-    sweep(chassis, N, CLAIM, unlockedOreTypes);
+    console.log(
+      `  fuelCap ${chassis.fuelCap} · hold ${chassis.hold} · sink ${chassis.sinkCap} · speed ${chassis.speed.toFixed(2)} · movement ${chassis.movement.toFixed(2)}`,
+    );
+    console.log("-".repeat(56));
+    sweep(chassis, N, CLAIM, unlockedOreTypes, ORE_DATA);
   }
 }

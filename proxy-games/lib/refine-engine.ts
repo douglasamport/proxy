@@ -17,8 +17,7 @@
 // tolerance windows and decant-ratio range tighten/widen by tier, which is
 // what makes a rare-earth batch a harder, higher-stakes version of the
 // same game rather than a reskin.
-import { ORE_TYPES } from "./mining-engine";
-import type { OreTypeKey } from "./mining-engine";
+import type { OreTypeKey, OreData } from "./mining-inventory";
 
 export type BlockGrade = 1 | 2 | 8 | 20;
 export type BatchStatus = "sizing" | "active" | "shutdown" | "overheat";
@@ -122,6 +121,7 @@ export interface BatchState {
   seed: number;
   rig: RefineRig;
   oreType: OreTypeKey; // which mineral this batch is refining — set at launch, fixed for the batch
+  oreData: Record<string, OreData>;
   bidUnits: number; // total ore committed at sizing (the "bid", §6.3)
   oreRemaining: number; // undrawn ore left in the bid pool
   offer: [OfferSlot, OfferSlot, OfferSlot];
@@ -344,14 +344,45 @@ export interface TierTuning {
 // the same simulation at roughly a 1.3-2x difference in time-to-overheat
 // under identical, maximally-aggressive play.
 const TIER_TUNING: Record<1 | 2 | 3 | 4, TierTuning> = {
-  1: { decantOreWorst: 10, heatIdealFraction: 0.4, pressureHalfWidth: 10, slagHalfWidth: 0.05, heatPerOreMultiplier: 1.0, pressureGainMultiplier: 1.0 },
-  2: { decantOreWorst: 30, heatIdealFraction: 0.3, pressureHalfWidth: 7, slagHalfWidth: 0.035, heatPerOreMultiplier: 1.15, pressureGainMultiplier: 1.1 },
-  3: { decantOreWorst: 60, heatIdealFraction: 0.22, pressureHalfWidth: 5, slagHalfWidth: 0.025, heatPerOreMultiplier: 1.3, pressureGainMultiplier: 1.2 },
-  4: { decantOreWorst: 100, heatIdealFraction: 0.15, pressureHalfWidth: 3, slagHalfWidth: 0.015, heatPerOreMultiplier: 1.5, pressureGainMultiplier: 1.35 },
+  1: {
+    decantOreWorst: 10,
+    heatIdealFraction: 0.4,
+    pressureHalfWidth: 10,
+    slagHalfWidth: 0.05,
+    heatPerOreMultiplier: 1.0,
+    pressureGainMultiplier: 1.0,
+  },
+  2: {
+    decantOreWorst: 30,
+    heatIdealFraction: 0.3,
+    pressureHalfWidth: 7,
+    slagHalfWidth: 0.035,
+    heatPerOreMultiplier: 1.15,
+    pressureGainMultiplier: 1.1,
+  },
+  3: {
+    decantOreWorst: 60,
+    heatIdealFraction: 0.22,
+    pressureHalfWidth: 5,
+    slagHalfWidth: 0.025,
+    heatPerOreMultiplier: 1.3,
+    pressureGainMultiplier: 1.2,
+  },
+  4: {
+    decantOreWorst: 100,
+    heatIdealFraction: 0.15,
+    pressureHalfWidth: 3,
+    slagHalfWidth: 0.015,
+    heatPerOreMultiplier: 1.5,
+    pressureGainMultiplier: 1.35,
+  },
 };
 
-export function tierTuning(oreType: OreTypeKey): TierTuning {
-  return TIER_TUNING[ORE_TYPES[oreType].tier as 1 | 2 | 3 | 4];
+export function tierTuning(
+  oreType: OreTypeKey,
+  oreData: Record<string, OreData>,
+): TierTuning {
+  return TIER_TUNING[oreData[oreType].tier as 1 | 2 | 3 | 4];
 }
 
 /* ============================================================================
@@ -487,7 +518,12 @@ export function effectiveSinkRate(
 // but showing "G8" / "G20" next to mining's 1-4 grade badges reads as a
 // different, unexplained scale. This maps the four block sizes onto the
 // same 1-4 tier language mining already uses.
-const GRADE_TIER: Record<BlockGrade, 1 | 2 | 3 | 4> = { 1: 1, 2: 2, 8: 3, 20: 4 };
+const GRADE_TIER: Record<BlockGrade, 1 | 2 | 3 | 4> = {
+  1: 1,
+  2: 2,
+  8: 3,
+  20: 4,
+};
 export function gradeTier(grade: BlockGrade): 1 | 2 | 3 | 4 {
   return GRADE_TIER[grade];
 }
@@ -512,12 +548,23 @@ function clone(state: BatchState): BatchState {
 // relation to how much of the bid is still unclaimed. Returns null when
 // nothing fits (maxUnits < the smallest grade, 1) — the caller leaves that
 // slot empty rather than drawing anyway.
-function rollBlock(rand: () => number, id: number, maxUnits: number): Block | null {
+function rollBlock(
+  rand: () => number,
+  id: number,
+  maxUnits: number,
+): Block | null {
   const eligible = CFG.GRADES.filter((g) => g <= maxUnits);
   if (eligible.length === 0) return null;
   const grade = eligible[Math.floor(rand() * eligible.length)];
   const slagUnits = randRange(rand, CFG.SLAG_RANGE[grade]);
-  return { id, grade, oreUnits: grade, slagUnits, revealed: false, assayStartedAt: null };
+  return {
+    id,
+    grade,
+    oreUnits: grade,
+    slagUnits,
+    revealed: false,
+    assayStartedAt: null,
+  };
 }
 
 // Sum of oreUnits currently sitting in the offer, unmelted — this includes
@@ -540,6 +587,7 @@ export function createBatch(
   rig: RefineRig,
   bidUnits: number,
   oreType: OreTypeKey,
+  oreData: Record<string, OreData>,
 ): BatchState {
   const rand = mulberry32(seed);
   let nextBlockId = 1;
@@ -557,6 +605,7 @@ export function createBatch(
     seed,
     rig,
     oreType,
+    oreData,
     bidUnits,
     oreRemaining: bidUnits,
     offer,
@@ -603,11 +652,15 @@ export function tick(state: BatchState, dtMs: number): BatchState {
   // block grades on refill) — deterministic replay without threading a
   // live generator through every call.
   const rand = mulberry32(s.seed ^ Math.floor(s.clock));
-  const tuning = tierTuning(s.oreType);
+  const tuning = tierTuning(s.oreType, s.oreData);
 
   // --- assay reveals ---
   for (const slot of s.offer) {
-    if (slot.block && !slot.block.revealed && slot.block.assayStartedAt !== null) {
+    if (
+      slot.block &&
+      !slot.block.revealed &&
+      slot.block.assayStartedAt !== null
+    ) {
       if (s.clock - slot.block.assayStartedAt >= CFG.ASSAY_DURATION_MS) {
         slot.block.revealed = true;
       }
@@ -622,7 +675,11 @@ export function tick(state: BatchState, dtMs: number): BatchState {
   // reservedOreUnits() only shrinks when oreRemaining itself does (a melt
   // completing removes a block from both at once — see below).
   for (const slot of s.offer) {
-    if (!slot.block && slot.refillReadyAt !== null && s.clock >= slot.refillReadyAt) {
+    if (
+      !slot.block &&
+      slot.refillReadyAt !== null &&
+      s.clock >= slot.refillReadyAt
+    ) {
       const freeCapacity = s.oreRemaining - reservedOreUnits(s.offer);
       const block = rollBlock(rand, s.nextBlockId, freeCapacity);
       if (block) {
@@ -638,7 +695,8 @@ export function tick(state: BatchState, dtMs: number): BatchState {
     const { block, slotIndex } = s.melting;
     s.tankOre += block.oreUnits;
     s.tankSlag += block.slagUnits;
-    s.heat += block.oreUnits * CFG.HEAT_PER_ORE_UNIT * tuning.heatPerOreMultiplier;
+    s.heat +=
+      block.oreUnits * CFG.HEAT_PER_ORE_UNIT * tuning.heatPerOreMultiplier;
     s.oreRemaining -= block.oreUnits;
     s.offer[slotIndex] = {
       block: null,
@@ -664,7 +722,8 @@ export function tick(state: BatchState, dtMs: number): BatchState {
   s.heat += s.heaterRate * dtSec;
 
   // --- separation: raw tank ore -> ready (decantable) ore ---
-  const sepRate = CFG.SEPARATION_RATE_MAX * pressureEfficiency(s.pressure, tuning);
+  const sepRate =
+    CFG.SEPARATION_RATE_MAX * pressureEfficiency(s.pressure, tuning);
   const separated = Math.min(s.tankOre, sepRate * dtSec);
   s.tankOre -= separated;
   s.readyOre += separated;
@@ -706,10 +765,7 @@ export function tick(state: BatchState, dtMs: number): BatchState {
   // previously a flat constant no upgrade touched at all, which meant a
   // maxed-out cooler could fill the sink faster without the sink itself
   // ever draining any faster in return.
-  s.coolerStored = Math.max(
-    0,
-    s.coolerStored - s.rig.dissipationRate * dtSec,
-  );
+  s.coolerStored = Math.max(0, s.coolerStored - s.rig.dissipationRate * dtSec);
 
   // --- overheat (hard failure, §6.6) ---
   if (s.heat >= CFG.TANK_HEAT_CEILING) {
@@ -726,10 +782,7 @@ export function tick(state: BatchState, dtMs: number): BatchState {
    err to the client the same way mining's run routes do.
    ========================================================================== */
 
-export function startAssay(
-  state: BatchState,
-  slotIndex: number,
-): ApplyResult {
+export function startAssay(state: BatchState, slotIndex: number): ApplyResult {
   const slot = state.offer[slotIndex];
   if (!slot?.block) return { s: state, err: "no block in that slot" };
   if (slot.block.revealed || slot.block.assayStartedAt !== null) {
@@ -745,7 +798,8 @@ export function startMelt(state: BatchState, slotIndex: number): ApplyResult {
   const slot = state.offer[slotIndex];
   if (!slot?.block) return { s: state, err: "no block in that slot" };
   const duration = meltDurationMs(slot.block.grade, state.rig);
-  if (!Number.isFinite(duration)) return { s: state, err: "no furnace equipped" };
+  if (!Number.isFinite(duration))
+    return { s: state, err: "no furnace equipped" };
 
   const s = clone(state);
   s.melting = {
@@ -769,10 +823,15 @@ export function applyDecant(state: BatchState): ApplyResult {
     return { s: state, err: "not enough action charge" };
   }
 
-  const tuning = tierTuning(state.oreType);
+  const tuning = tierTuning(state.oreType, state.oreData);
   const tankVolume = state.tankOre + state.tankSlag + state.readyOre;
   const slagFraction = tankVolume > 0 ? state.tankSlag / tankVolume : 0;
-  const quality = decantQuality(state.heat, state.pressure, slagFraction, tuning);
+  const quality = decantQuality(
+    state.heat,
+    state.pressure,
+    slagFraction,
+    tuning,
+  );
   const ratio = decantRatio(quality, tuning);
 
   if (state.readyOre < ratio) {
@@ -801,10 +860,15 @@ export function applyDecantAll(state: BatchState): ApplyResult {
     return { s: state, err: "not enough action charge" };
   }
 
-  const tuning = tierTuning(state.oreType);
+  const tuning = tierTuning(state.oreType, state.oreData);
   const tankVolume = state.tankOre + state.tankSlag + state.readyOre;
   const slagFraction = tankVolume > 0 ? state.tankSlag / tankVolume : 0;
-  const quality = decantQuality(state.heat, state.pressure, slagFraction, tuning);
+  const quality = decantQuality(
+    state.heat,
+    state.pressure,
+    slagFraction,
+    tuning,
+  );
   const ratio = decantRatio(quality, tuning);
   const units = Math.floor(state.readyOre / ratio);
 
@@ -872,7 +936,10 @@ export function applyToggleDump(state: BatchState): ApplyResult {
 // Raise/lower the fins (§4.11) — a passive dial, not a triggered action, so
 // it's free and always available like turning dumping off. Clamped to
 // 0..1; the client sends a 0-100 percentage.
-export function applySetFinPower(state: BatchState, power: number): ApplyResult {
+export function applySetFinPower(
+  state: BatchState,
+  power: number,
+): ApplyResult {
   const s = clone(state);
   s.finPower = Math.max(0, Math.min(1, power));
   return { s };
@@ -884,7 +951,10 @@ export function applySetFinPower(state: BatchState, power: number): ApplyResult 
 // precision heater reaches down to 1 for a genuinely low standing burn.
 // Floored at heaterMin rather than allowing 0 either way — this is a
 // standing burner, not a toggle.
-export function applySetHeaterRate(state: BatchState, rate: number): ApplyResult {
+export function applySetHeaterRate(
+  state: BatchState,
+  rate: number,
+): ApplyResult {
   const s = clone(state);
   s.heaterRate = Math.max(
     state.rig.heaterMin,
@@ -910,7 +980,8 @@ export function applyUseCoolant(state: BatchState): ApplyResult {
 // return to the player's ore inventory; melted-but-undecanted material
 // (tankOre/tankSlag/readyOre) is lost either way, same as overheat.
 export function applyShutdown(state: BatchState): ApplyResult {
-  if (state.status !== "active") return { s: state, err: "batch already ended" };
+  if (state.status !== "active")
+    return { s: state, err: "batch already ended" };
   const s = clone(state);
   s.status = "shutdown";
   return { s };

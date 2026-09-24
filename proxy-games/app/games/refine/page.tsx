@@ -11,7 +11,7 @@ import {
   tierTuning,
 } from "@/lib/refine-engine";
 import type { BatchState, BatchStatus } from "@/lib/refine-engine";
-import type { OreTypeKey } from "@/lib/mining-engine";
+import type { OreTypeKey } from "@/lib/mining-inventory";
 import { ATOMS, ACCENTS, SURFACE } from "@/lib/mining-theme";
 
 // Refinery v1 — see app/design_docs/minigame-v2-the-refinery.md. This is
@@ -90,9 +90,11 @@ function round(n: number): number {
 }
 
 const ACTION_ERR_LABEL: Record<string, string> = {
-  "not enough action charge": "Not enough action charge yet — wait for it to recharge.",
+  "not enough action charge":
+    "Not enough action charge yet — wait for it to recharge.",
   "no slag to remove": "No slag to remove.",
-  "not enough separated ore for a full unit": "Not enough separated ore for a full unit yet.",
+  "not enough separated ore for a full unit":
+    "Not enough separated ore for a full unit yet.",
   "already melting": "Already melting — wait for it to finish.",
   "no furnace equipped": "No furnace equipped.",
 };
@@ -101,7 +103,9 @@ export default function RefinePage() {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [phase, setPhase] = useState<"fitting" | "active">("fitting");
   const [oreOptions, setOreOptions] = useState<OreOption[]>([]);
-  const [selectedOreType, setSelectedOreType] = useState<OreTypeKey | null>(null);
+  const [selectedOreType, setSelectedOreType] = useState<OreTypeKey | null>(
+    null,
+  );
   const [bidInput, setBidInput] = useState("100");
   const [state, setState] = useState<BatchState | null>(null);
   const [summary, setSummary] = useState<EndSummary | null>(null);
@@ -117,10 +121,16 @@ export default function RefinePage() {
     const res = await fetch("/api/inventory?game=refine");
     if (!res.ok) return;
     const data = await res.json();
-    const rows = data.inventory as { item_key: string; owned_quantity: number }[];
-    setCoolantCount(rows.find((r) => r.item_key === "coolant_flush")?.owned_quantity ?? 0);
+    const rows = data.inventory as {
+      item_key: string;
+      owned_quantity: number;
+    }[];
+    setCoolantCount(
+      rows.find((r) => r.item_key === "coolant_flush")?.owned_quantity ?? 0,
+    );
     setHasDecanterAuto(
-      (rows.find((r) => r.item_key === "decanter_auto")?.owned_quantity ?? 0) > 0,
+      (rows.find((r) => r.item_key === "decanter_auto")?.owned_quantity ?? 0) >
+        0,
     );
   }, []);
 
@@ -264,7 +274,9 @@ export default function RefinePage() {
     );
     if (!r.ok) return;
     setState(r.data.state);
-    setActionErr(r.data.err ? (ACTION_ERR_LABEL[r.data.err] ?? r.data.err) : "");
+    setActionErr(
+      r.data.err ? (ACTION_ERR_LABEL[r.data.err] ?? r.data.err) : "",
+    );
   }
 
   async function endBatch() {
@@ -311,11 +323,11 @@ export default function RefinePage() {
           Size the batch
         </h1>
         <p className={`mb-6 text-sm ${ATOMS.textDim}`}>
-          Choose which mineral to refine and how much to commit. Rarer ore
-          pays out at a much wider decant range — 5 ore/unit at best, up to
-          100 at worst — and demands tighter heat/pressure/slag control.
-          Once launched, unmelted ore returns to you on a deliberate
-          shutdown, but is destroyed on an overheat.
+          Choose which mineral to refine and how much to commit. Rarer ore pays
+          out at a much wider decant range — 5 ore/unit at best, up to 100 at
+          worst — and demands tighter heat/pressure/slag control. Once launched,
+          unmelted ore returns to you on a deliberate shutdown, but is destroyed
+          on an overheat.
         </p>
 
         <div className="grid grid-cols-1 gap-8 md:grid-cols-[1fr_300px]">
@@ -335,7 +347,9 @@ export default function RefinePage() {
 
             <div className={`mb-4 rounded-lg p-4 ${SURFACE.well}`}>
               <div className={`${SURFACE.label} mb-1`}>available ore</div>
-              <div className={`font-mono text-2xl font-bold ${ATOMS.textPrimary}`}>
+              <div
+                className={`font-mono text-2xl font-bold ${ATOMS.textPrimary}`}
+              >
                 {(selected?.available ?? 0).toLocaleString()}
               </div>
             </div>
@@ -361,14 +375,33 @@ export default function RefinePage() {
             </button>
           </div>
 
-          <div className={`rounded-lg p-4 text-[12px] leading-relaxed ${SURFACE.well} ${ATOMS.textDim}`}>
+          <div
+            className={`rounded-lg p-4 text-[12px] leading-relaxed ${SURFACE.well} ${ATOMS.textDim}`}
+          >
             <strong className={ATOMS.textPrimary}>How a batch works:</strong>
             <ol className="mt-2 list-decimal space-y-2 pl-4">
-              <li>Melt ore blocks into the vat. Each melt adds heat and dumps in raw ore plus slag.</li>
-              <li>Raw ore separates into ready ore on its own — faster the closer pressure sits to its target.</li>
-              <li>Manage heat, pressure, and slag with the vat heater, vent, remove-slag, and cooler dump controls. Keep all three near their targets for the best decant rate.</li>
-              <li>Decant ready ore into banked output. Better conditions at the moment you decant mean more output per ore spent.</li>
-              <li>Shut the batch down whenever you want to keep what&rsquo;s banked — a deliberate shutdown also returns unmelted ore, but running the vat past its heat ceiling destroys it instead.</li>
+              <li>
+                Melt ore blocks into the vat. Each melt adds heat and dumps in
+                raw ore plus slag.
+              </li>
+              <li>
+                Raw ore separates into ready ore on its own — faster the closer
+                pressure sits to its target.
+              </li>
+              <li>
+                Manage heat, pressure, and slag with the vat heater, vent,
+                remove-slag, and cooler dump controls. Keep all three near their
+                targets for the best decant rate.
+              </li>
+              <li>
+                Decant ready ore into banked output. Better conditions at the
+                moment you decant mean more output per ore spent.
+              </li>
+              <li>
+                Shut the batch down whenever you want to keep what&rsquo;s
+                banked — a deliberate shutdown also returns unmelted ore, but
+                running the vat past its heat ceiling destroys it instead.
+              </li>
             </ol>
           </div>
         </div>
@@ -380,7 +413,7 @@ export default function RefinePage() {
     return <main className="px-6 py-16 text-center">Loading…</main>;
   }
 
-  const tuning = tierTuning(state.oreType);
+  const tuning = tierTuning(state.oreType, state.oreData);
   const outputLabel = OUTPUT_LABELS[state.oreType];
   const heatIdealHigh = tuning.heatIdealFraction * CFG.TANK_HEAT_CEILING;
   const pressureLow = 50 - tuning.pressureHalfWidth;
@@ -406,7 +439,12 @@ export default function RefinePage() {
     high: (0.15 + tuning.slagHalfWidth) * 100,
     max: (0.15 + tuning.slagHalfWidth * 3) * 100,
   };
-  const quality = decantQuality(state.heat, state.pressure, slagFraction, tuning);
+  const quality = decantQuality(
+    state.heat,
+    state.pressure,
+    slagFraction,
+    tuning,
+  );
   const ratio = decantRatio(quality, tuning);
 
   // Displayed separately from the precise values above: each gauge used to
@@ -431,7 +469,9 @@ export default function RefinePage() {
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-8">
-      <div className={`mb-4 font-mono text-xs uppercase tracking-wider ${ATOMS.textDim}`}>
+      <div
+        className={`mb-4 font-mono text-xs uppercase tracking-wider ${ATOMS.textDim}`}
+      >
         Refining <span className={ATOMS.textPrimary}>{outputLabel}</span>
       </div>
 
@@ -477,29 +517,28 @@ export default function RefinePage() {
           >
             dismiss
           </button>
-          <strong className={ATOMS.textPrimary}>How this works:</strong> Melt
-          a block (furnace) to load ore + slag into the vat. Ore separates
-          into <em>ready ore</em> on its own over a few seconds — faster
-          when pressure sits at or below the optimal band; riding pressure
-          higher (without tipping into a forced vent) actually improves
-          your decant ratio, so the <strong>vat heater</strong> is there to
-          let you deliberately push heat — and with it, pressure — up on
-          purpose, not just as a melt byproduct (its floor, and the{" "}
+          <strong className={ATOMS.textPrimary}>How this works:</strong> Melt a
+          block (furnace) to load ore + slag into the vat. Ore separates into{" "}
+          <em>ready ore</em> on its own over a few seconds — faster when
+          pressure sits at or below the optimal band; riding pressure higher
+          (without tipping into a forced vent) actually improves your decant
+          ratio, so the <strong>vat heater</strong> is there to let you
+          deliberately push heat — and with it, pressure — up on purpose, not
+          just as a melt byproduct (its floor, and the{" "}
           <strong>vent valve</strong>&rsquo;s range, are set by whichever
           heater/valve you have equipped — better ones reach lower).{" "}
-          <strong>Vent</strong> and <strong>remove slag</strong> keep both
-          from running away; ignoring them makes the vat harder to cool.
-          Turn on <strong>dump</strong> to pull heat into the sink, and the
-          equipped <strong>radiator</strong> is what actually sheds it to
-          the outside world afterward — a bigger sink fills faster without
-          a better radiator to empty it back out. <strong>Decant</strong>{" "}
-          converts ready ore into banked output; better conditions mean more
-          units per ore spent — <strong>Decant All</strong> (if unlocked)
-          banks everything currently affordable in one click instead of one
-          unit at a time. Rarer minerals demand tighter control and punish a
-          bad decant far harder. Ending the batch keeps whatever&rsquo;s
-          banked; a deliberate shutdown also returns unmelted ore, an
-          overheat destroys it.
+          <strong>Vent</strong> and <strong>remove slag</strong> keep both from
+          running away; ignoring them makes the vat harder to cool. Turn on{" "}
+          <strong>dump</strong> to pull heat into the sink, and the equipped{" "}
+          <strong>radiator</strong> is what actually sheds it to the outside
+          world afterward — a bigger sink fills faster without a better radiator
+          to empty it back out. <strong>Decant</strong> converts ready ore into
+          banked output; better conditions mean more units per ore spent —{" "}
+          <strong>Decant All</strong> (if unlocked) banks everything currently
+          affordable in one click instead of one unit at a time. Rarer minerals
+          demand tighter control and punish a bad decant far harder. Ending the
+          batch keeps whatever&rsquo;s banked; a deliberate shutdown also
+          returns unmelted ore, an overheat destroys it.
           <div className="mt-2">
             Heat/pressure/slag bars are colored by distance from ideal:{" "}
             <span className="text-[#3B82F6]">blue</span>/
@@ -629,7 +668,11 @@ export default function RefinePage() {
                   label="heat"
                   value={state.heat}
                   max={CFG.TANK_HEAT_CEILING}
-                  ideal={{ low: 0, high: heatIdealHigh, max: CFG.TANK_HEAT_CEILING }}
+                  ideal={{
+                    low: 0,
+                    high: heatIdealHigh,
+                    max: CFG.TANK_HEAT_CEILING,
+                  }}
                 />
                 <Gauge
                   label="pressure"
@@ -738,9 +781,8 @@ export default function RefinePage() {
                 className="mt-1 w-full"
               />
               <p className={`mt-1 text-[10px] ${ATOMS.textDim}`}>
-                A standing heat source, always on — raise it to push heat
-                (and pressure) up deliberately instead of relying on melts
-                alone.
+                A standing heat source, always on — raise it to push heat (and
+                pressure) up deliberately instead of relying on melts alone.
               </p>
             </section>
 

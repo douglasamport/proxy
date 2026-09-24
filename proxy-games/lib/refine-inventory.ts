@@ -9,9 +9,8 @@
 import { sql } from "@/db/client";
 import { rigFromEffects, PART_CATEGORIES } from "./refine-engine";
 import type { RefineRig, StatKey, PartCategory } from "./refine-engine";
-import { loadUnlockedOreTypes } from "./mining-inventory";
-import type { OreTypeKey } from "./mining-engine";
-import { ORE_TYPES } from "./mining-engine";
+import { loadOreData, loadUnlockedOreTypes } from "./mining-inventory";
+import type { OreTypeKey } from "./mining-inventory";
 
 export { PART_CATEGORIES };
 export type { PartCategory };
@@ -149,7 +148,10 @@ export interface OreOption {
 // paired with how much of each they can actually bid with right now. This
 // is what populates the sizing screen's ore picker.
 export async function loadOreOptions(playerId: string): Promise<OreOption[]> {
-  const unlocked = await loadUnlockedOreTypes(playerId);
+  const [unlocked, oreData] = await Promise.all([
+    loadUnlockedOreTypes(playerId),
+    loadOreData(),
+  ]);
   const rows = await sql`
     select item_key, owned_quantity, equipped_quantity from player_inventory
     where player_id = ${playerId} and item_key = any(${unlocked})
@@ -162,7 +164,7 @@ export async function loadOreOptions(playerId: string): Promise<OreOption[]> {
   );
   return unlocked.map((oreType) => ({
     oreType,
-    label: ORE_TYPES[oreType].label,
+    label: oreData[oreType]?.label ?? oreType,
     available: byKey.get(oreType) ?? 0,
   }));
 }

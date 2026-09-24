@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentPlayer } from "@/lib/auth";
 import { launchBatch } from "@/lib/refine-batch-store";
 import { computeRefineRig } from "@/lib/refine-inventory";
-import { ORE_TYPES } from "@/lib/mining-engine";
-import type { OreTypeKey } from "@/lib/mining-engine";
+import type { OreTypeKey } from "@/lib/mining-inventory";
+import { loadOreData } from "@/lib/mining-inventory";
 
 // POST { bidUnits, oreType } -> { state }
 //
@@ -29,10 +29,12 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
   const bidUnits = Number(body.bidUnits);
   const oreType = body.oreType;
+  const oreData = await loadOreData();
+
   if (!Number.isFinite(bidUnits) || bidUnits <= 0) {
     return NextResponse.json({ error: "invalid bid" }, { status: 400 });
   }
-  if (typeof oreType !== "string" || !(oreType in ORE_TYPES)) {
+  if (typeof oreType !== "string" || !(oreType in oreData)) {
     return NextResponse.json({ error: "invalid ore type" }, { status: 400 });
   }
 
@@ -55,5 +57,8 @@ export async function POST(
     return NextResponse.json({ error: "not enough ore" }, { status: 402 });
   }
 
+  // launchBatch() -> createBatch() already sets state.oreData from its own
+  // loadOreData() call — no need to stamp it again with the copy fetched
+  // above (that one's only needed for the oreType validation before it).
   return NextResponse.json({ state: result.state });
 }
