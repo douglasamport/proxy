@@ -4,33 +4,16 @@
 // first consumer, refine and the arena are meant to move onto this same
 // shape later rather than growing their own copy.
 import { sql } from "@/db/client";
+import { categoryFitsSlot, CARRIAGE_CATEGORIES } from "./slot-categories";
+import type { SlotType } from "./slot-categories";
 
-export type SlotType = "standard" | "carriage";
+export type { SlotType };
+export { categoryFitsSlot, CARRIAGE_CATEGORIES };
 
 export interface ChassisSlot {
   id: string;
   slot_type: SlotType;
   installed_item_id: string | null;
-}
-
-// Slots that hold custom/utility equipment rather than a normal build
-// part — mining's field-tool consumables today, weapons once the arena
-// adds them. Kept here (not per-game) since the carriage/standard split is
-// meant to mean the same thing everywhere.
-export const CARRIAGE_CATEGORIES = new Set(["equipment", "weapon"]);
-
-// Never equippable at all, in any slot — capacity/unlock items and things
-// that live in plain inventory instead of a chassis slot.
-const NON_EQUIPPABLE_CATEGORIES = new Set([
-  "ore",
-  "license",
-  "expansion",
-  "equipment_slot",
-]);
-
-export function categoryFitsSlot(category: string, slotType: SlotType): boolean {
-  if (NON_EQUIPPABLE_CATEGORIES.has(category)) return false;
-  return CARRIAGE_CATEGORIES.has(category) === (slotType === "carriage");
 }
 
 // The proxy a character currently has selected for `game` — created lazily
@@ -59,11 +42,19 @@ export async function getOrCreateActiveProxy(
     insert into chassis_slots (proxy_id, slot_type)
     select ${proxy.id}, 'standard' from generate_series(1, ${standardSlots})
   `;
-  await sql`
+  // Race-proof against a concurrent call doing the same get-or-create for
+  // this character+game (db/021 added a unique(character_id, game)
+  // constraint here) — on conflict, keep whichever row actually won and
+  // return ITS proxy_id via RETURNING, not the one just built above. The
+  // loser's freshly-inserted proxy+slots are simply left unused rather
+  // than causing an unhandled unique-violation error.
+  const [selection] = await sql`
     insert into active_proxy_selection (character_id, game, proxy_id)
     values (${characterId}, ${game}, ${proxy.id})
+    on conflict (character_id, game) do update set updated_at = now()
+    returning proxy_id
   `;
-  return proxy.id;
+  return selection.proxy_id;
 }
 
 export async function loadSlots(proxyId: string): Promise<ChassisSlot[]> {

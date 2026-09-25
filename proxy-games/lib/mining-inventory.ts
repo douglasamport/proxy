@@ -313,7 +313,11 @@ export async function loadUnlockedOreTypes(
 const MINING_GAME = "mining";
 const MINING_PROXY_NAME = "Mining Chassis";
 
-async function resolveMiningProxy(
+// Exported so hot multi-call sites (e.g. GET /api/inventory) can resolve
+// once and reuse the result across several of the functions below instead
+// of each one independently re-resolving the same character+proxy — see
+// the efficiency note on this file's functions.
+export async function resolveMiningProxy(
   playerId: string,
 ): Promise<{ characterId: string; proxyId: string }> {
   const characterId = await getOrCreateCharacter(playerId, "Pilot");
@@ -417,6 +421,13 @@ export async function purchaseChassisExpansion(
   const [item] =
     await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and game = ${game} and active = true`;
   if (!item) return { kind: "not_found" };
+  // This always expands the MINING chassis (resolveMiningProxy is hardcoded
+  // to it) — genuinely mining-only for now, per the ore-progression build
+  // spec's scoping. A refine/arena equivalent needs its own resolver before
+  // this can honor an arbitrary `game`; until then, refuse rather than
+  // silently expand the wrong game's chassis for a purchase logged under a
+  // different game's ledger.
+  if (game !== MINING_GAME) return { kind: "not_found" };
 
   const { proxyId } = await resolveMiningProxy(playerId);
   const standardCount = await countSlots(proxyId, "standard");
@@ -464,6 +475,8 @@ export async function purchaseEquipmentSlotUnlock(
   const [item] =
     await sql`select cost from item_catalog where item_key = ${EQUIPMENT_SLOT_KEY} and game = ${game} and active = true`;
   if (!item) return { kind: "not_found" };
+  // Mining-only for now — see the matching guard in purchaseChassisExpansion().
+  if (game !== MINING_GAME) return { kind: "not_found" };
   const cost = Number(item.cost);
 
   const { proxyId } = await resolveMiningProxy(playerId);
@@ -476,6 +489,25 @@ export async function purchaseEquipmentSlotUnlock(
     returning balance
   `;
   if (!deducted) return { kind: "insufficient_funds" };
+
+  // Race-proof one-time gate: player_inventory's unique (player_id,
+  // item_key) constraint makes this insert a guaranteed no-op for a second
+  // concurrent purchase (double-click, two tabs) — the countSlots() read
+  // above can't rule that out on its own, since two requests can both see
+  // 0 carriage slots before either commits. This row's quantities are
+  // otherwise inert (same as chassis_expansion's vestigial player_
+  // inventory rows) — chassis_slots is still the real state; this insert
+  // exists purely as the atomic gate.
+  const [gate] = await sql`
+    insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
+    values (${playerId}, ${EQUIPMENT_SLOT_KEY}, 1, 0)
+    on conflict (player_id, item_key) do nothing
+    returning item_key
+  `;
+  if (!gate) {
+    await sql`update players set balance = balance + ${cost} where id = ${playerId}`;
+    return { kind: "already_owned" };
+  }
 
   await sql.transaction([
     sql`insert into chassis_slots (proxy_id, slot_type) values (${proxyId}, 'carriage')`,
@@ -513,20 +545,26 @@ export async function consumeEquippedItem(
   itemKey: string,
 ): Promise<void> {
   const { proxyId } = await resolveMiningProxy(playerId);
+  // A single conditional UPDATE instead of select-then-update: clears
+  // whichever slot has this item RIGHT NOW, atomically, so there's no
+  // window where a concurrent equip/unequip on that same slot (e.g. via
+  // the Build screen) could swap in a different item between the check
+  // and the clear and have this wipe that item instead.
   const [slot] = await sql`
-    select id from chassis_slots
-    where proxy_id = ${proxyId} and installed_item_id = ${itemKey}
-    limit 1
+    update chassis_slots set installed_item_id = null, updated_at = now()
+    where id = (
+      select id from chassis_slots
+      where proxy_id = ${proxyId} and installed_item_id = ${itemKey}
+      limit 1
+    )
+    returning id
   `;
   if (!slot) return;
 
-  await sql.transaction([
-    sql`update chassis_slots set installed_item_id = null, updated_at = now() where id = ${slot.id}`,
-    sql`
-      update player_inventory set owned_quantity = owned_quantity - 1, updated_at = now()
-      where player_id = ${playerId} and item_key = ${itemKey} and owned_quantity > 0
-    `,
-  ]);
+  await sql`
+    update player_inventory set owned_quantity = owned_quantity - 1, updated_at = now()
+    where player_id = ${playerId} and item_key = ${itemKey} and owned_quantity > 0
+  `;
 }
 
 // Item keys currently installed in a carriage slot — what the client uses

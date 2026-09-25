@@ -9,7 +9,7 @@ import {
   loadOreData,
 } from "@/lib/mining-inventory";
 import { getOrCreateCharacter } from "@/lib/characters";
-import { spendEnergy } from "@/lib/energy";
+import { refundEnergy, spendEnergy } from "@/lib/energy";
 import { CFG, applySurvey, createRun } from "@/lib/mining-engine";
 
 // POST { claim } -> the initial PublicRunView for the run.
@@ -81,7 +81,7 @@ export async function POST(
     // the energy already spent above belongs to nothing, since this
     // request's run never actually activated. Refund it rather than
     // charging twice for one launched run.
-    await sql`update characters set energy = energy + ${claim} where id = ${characterId}`;
+    await refundEnergy(characterId, claim);
     return NextResponse.json(
       { error: "run already launched" },
       { status: 409 },

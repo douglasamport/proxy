@@ -88,14 +88,28 @@ export function CatalogScreen({
     isEquipmentSlot: boolean;
   } | null>(null);
 
-  const { catalog, inventory, balance, load } = useInventory();
+  const { catalog, inventory, slots, balance, load } = useInventory();
 
   const ownedByKey = new Map(
     inventory.map((r) => [r.item_key, r.owned_quantity]),
   );
-  const equippedByKey = new Map(
-    inventory.map((r) => [r.item_key, r.equipped_quantity]),
-  );
+  // Mining's "equipped" state lives in chassis_slots now, not
+  // player_inventory.equipped_quantity (permanently zeroed for mining items
+  // — see lib/mining-inventory.ts). Tally installed counts from the real
+  // slots for mining; refine hasn't moved to the slot model yet, so its
+  // equipped_quantity column is still the real answer.
+  const equippedByKey = new Map<string, number>();
+  if (game === "mining") {
+    for (const slot of slots) {
+      if (!slot.installed_item_id) continue;
+      equippedByKey.set(
+        slot.installed_item_id,
+        (equippedByKey.get(slot.installed_item_id) ?? 0) + 1,
+      );
+    }
+  } else {
+    for (const r of inventory) equippedByKey.set(r.item_key, r.equipped_quantity);
+  }
   const funds = balance ? Number(balance) : 0;
 
   const visibleCatalog = useMemo(

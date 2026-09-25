@@ -81,39 +81,61 @@ export type SpendEnergyResult =
   | { ok: true; remaining: number }
   | { ok: false; available: number };
 
-// Atomic-enough for this: recompute the regen-adjusted current value,
-// check it covers `amount`, write the new value + a fresh checkpoint. A
-// concurrent double-spend could still both read the same pre-spend value
-// (no row lock), same tradeoff lib/mining-inventory.ts's setEquipped-style
-// functions already accept elsewhere in this codebase — worst case a
-// narrow race lets one extra spend through before the next read corrects
-// it, not worth a transaction for a resource this game-outcome-cheap.
+// A single conditional UPDATE, same shape as the "balance >= cost" atomic
+// deduct pattern used everywhere money is spent (see purchaseItem() etc.
+// in this file) — the regen-projection formula is reproduced in SQL so the
+// check-and-spend happens as one statement instead of a separate read then
+// write. That matters here specifically because energy is shared across
+// two different games (mining, refine): a mining launch and a refine
+// launch firing in the same instant both need to see each other's spend,
+// not just two clicks on the same button — a read-then-write in
+// application code can't guarantee that, a single atomic UPDATE can.
 export async function spendEnergy(
   characterId: string,
   amount: number,
 ): Promise<SpendEnergyResult> {
-  const [row] = await sql`
-    select c.energy, c.energy_updated_at, p.subscribed, p.playtester
-    from characters c
-    join players p on p.id = c.player_id
-    where c.id = ${characterId}
+  const [spent] = await sql`
+    with current_state as (
+      select
+        c.id,
+        least(
+          case when p.subscribed then ${BASE_ENERGY_CAP * SUBSCRIBED_MULTIPLIER}::numeric else ${BASE_ENERGY_CAP}::numeric end,
+          c.energy + extract(epoch from (now() - c.energy_updated_at)) * 1000
+            * ${BASE_ENERGY_REGEN_PER_DAY}::numeric
+            * (case when p.subscribed then ${SUBSCRIBED_MULTIPLIER}::numeric else 1 end)
+            * (case when p.playtester then ${PLAYTESTER_REGEN_MULTIPLIER}::numeric else 1 end)
+            / ${MS_PER_DAY}::numeric
+        ) as current
+      from characters c
+      join players p on p.id = c.player_id
+      where c.id = ${characterId}
+    )
+    update characters c
+    set energy = current_state.current - ${amount}::numeric, energy_updated_at = now()
+    from current_state
+    where c.id = current_state.id and current_state.current >= ${amount}::numeric
+    returning current_state.current - ${amount}::numeric as remaining
   `;
-  if (!row) return { ok: false, available: 0 };
+  if (spent) return { ok: true, remaining: Number(spent.remaining) };
 
-  const subscribed = row.subscribed ?? false;
-  const playtester = row.playtester ?? false;
-  const current = projectedCurrent(
-    row.energy,
-    new Date(row.energy_updated_at),
-    subscribed,
-    playtester,
-  );
-  if (current < amount) return { ok: false, available: current };
+  // Didn't clear the bar — read back the real current value (regen-
+  // adjusted) for the error message. No write, so no race to guard here.
+  const { current } = await getEnergy(characterId);
+  return { ok: false, available: current };
+}
 
-  const remaining = current - amount;
+// Compensating credit for a spend whose larger action (a run launch, a
+// batch launch) turned out not to happen after all — e.g. lost a race
+// against a concurrent launch on the same row. A plain additive UPDATE is
+// enough here (unlike spendEnergy, nothing needs to check a threshold
+// first), shared so mining's and refine's launch routes don't each hand-
+// roll the same statement.
+export async function refundEnergy(
+  characterId: string,
+  amount: number,
+): Promise<void> {
   await sql`
-    update characters set energy = ${remaining}, energy_updated_at = now()
+    update characters set energy = energy + ${amount}::numeric, energy_updated_at = now()
     where id = ${characterId}
   `;
-  return { ok: true, remaining };
 }

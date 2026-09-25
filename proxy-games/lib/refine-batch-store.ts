@@ -21,7 +21,7 @@ import type { BatchState, RefineRig, BatchStatus } from "./refine-engine";
 import type { OreTypeKey } from "./mining-inventory";
 import { loadOreData } from "./mining-inventory";
 import { getOrCreateCharacter } from "./characters";
-import { spendEnergy } from "./energy";
+import { refundEnergy, spendEnergy } from "./energy";
 import {
   GAME,
   oreItemKey,
@@ -29,6 +29,7 @@ import {
   loadAvailableOre,
   loadOreOptions,
   debitOre,
+  creditOre,
 } from "./refine-inventory";
 import type { OreOption } from "./refine-inventory";
 
@@ -170,17 +171,12 @@ export async function launchBatch(
   `;
   if (!saved) {
     // Lost a race against a concurrent launch — refund both, same reasoning
-    // as the equivalent guard in app/api/runs/[id]/launch/route.ts.
-    await sql`
-      update characters set energy = energy + ${REFINE_LAUNCH_ENERGY_COST}
-      where id = ${characterId}
-    `;
-    await sql`
-      insert into player_inventory (player_id, item_key, owned_quantity)
-      values (${playerId}, ${oreItemKey(oreType)}, ${bidUnits})
-      on conflict (player_id, item_key)
-      do update set owned_quantity = player_inventory.owned_quantity + excluded.owned_quantity, updated_at = now()
-    `;
+    // as the equivalent guard in app/api/runs/[id]/launch/route.ts. The ore
+    // row is guaranteed to already exist here (debitOre() just touched it
+    // above), so the plain-UPDATE creditOre() helper is safe to reuse
+    // rather than hand-rolling an upsert.
+    await refundEnergy(characterId, REFINE_LAUNCH_ENERGY_COST);
+    await creditOre(playerId, oreType, bidUnits);
     return { kind: "not_found" };
   }
 

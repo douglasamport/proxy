@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { currentPlayer } from "@/lib/auth";
-import { loadCatalog, loadInventory } from "@/lib/mining-inventory";
+import { loadCatalog, loadInventory, loadMiningSlots } from "@/lib/mining-inventory";
 import { InventoryGrid } from "../../components/InventoryGrid";
 import type { OwnedItem } from "../../components/InventoryGrid";
 
@@ -29,11 +29,25 @@ export default async function InventoryPage() {
     );
   }
 
-  const [catalog, inventory] = await Promise.all([
+  const [catalog, inventory, slots] = await Promise.all([
     loadCatalog("mining"),
     loadInventory(player.id, "mining"),
+    loadMiningSlots(player.id),
   ]);
   const byKey = new Map(catalog.map((c) => [c.item_key, c]));
+  // Mining's "equipped" state lives in chassis_slots now, not
+  // player_inventory.equipped_quantity (which db/021_migrate_mining_proxy.sql
+  // zeroed for every mining item and nothing writes again — see lib/mining-
+  // inventory.ts). Tally installed counts from the real slots instead of
+  // trusting that stale column, same derivation the Build screen uses.
+  const installedByItem = new Map<string, number>();
+  for (const slot of slots) {
+    if (!slot.installed_item_id) continue;
+    installedByItem.set(
+      slot.installed_item_id,
+      (installedByItem.get(slot.installed_item_id) ?? 0) + 1,
+    );
+  }
   const items: OwnedItem[] = inventory
     .filter((r) => r.owned_quantity > 0)
     .map((r) => {
@@ -46,7 +60,7 @@ export default async function InventoryPage() {
         description: item.description,
         image_url: item.image_url,
         owned_quantity: r.owned_quantity,
-        equipped_quantity: r.equipped_quantity,
+        equipped_quantity: installedByItem.get(r.item_key) ?? 0,
       };
     })
     .filter((x): x is OwnedItem => x !== null);

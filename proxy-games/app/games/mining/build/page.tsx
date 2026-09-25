@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { CFG, fuelMult } from "@/lib/mining-engine";
 import type { StatKey } from "@/lib/mining-engine";
 import type { CatalogItem } from "@/lib/mining-inventory";
-import type { SlotType } from "@/lib/proxies";
+import { categoryFitsSlot } from "@/lib/slot-categories";
+import type { SlotType } from "@/lib/slot-categories";
 import { categoryIcon, FullBuildIcon } from "@/components/game-shell/icons";
 import { GameHeader } from "@/components/game-shell/GameHeader";
 import { FilterBar } from "@/components/game-shell/FilterBar";
@@ -34,10 +35,9 @@ import { useInventory } from "../layout";
 // starts to matter once slots can differ from each other (e.g. arena mount
 // bonuses), at which point this screen would grow real per-slot pickers.
 const FULL_BUILD = "__full__";
-const EQUIPMENT_CATEGORY = "equipment";
 
 function slotTypeForCategory(category: string): SlotType {
-  return category === EQUIPMENT_CATEGORY ? "carriage" : "standard";
+  return categoryFitsSlot(category, "carriage") ? "carriage" : "standard";
 }
 
 function categoryLabel(cat: string): string {
@@ -234,7 +234,7 @@ export default function BuildPage() {
   ];
 
   const roomLeftForCategory = (cat: string) =>
-    cat === EQUIPMENT_CATEGORY ? equipmentSlotsLeft : chassisSlotsLeft;
+    categoryFitsSlot(cat, "carriage") ? equipmentSlotsLeft : chassisSlotsLeft;
 
   return (
     <div className={`min-h-screen ${ATOMS.bgVoid}`}>
