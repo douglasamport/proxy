@@ -157,7 +157,6 @@ export interface RunState {
   refuels: number;
   survey: SurveyTier;
   surveyCost: number;
-  claimCost: number;
   contacts: Contact[];
   pings: number;
   pingReady: number;
@@ -188,7 +187,6 @@ export interface ScoreResult {
   cost: number;
   launch: number;
   surveyCost: number;
-  claimCost: number;
   survey: SurveyTier;
   trips: number;
   energyLeft: number;
@@ -309,19 +307,17 @@ export const CFG = {
       note: "Same, at workable resolution. Still no grade, still no terrain.",
     },
   } as Record<SurveyTier, SurveySpec>,
-  // Claim size is its own purchase now, on top of the flat launch cost —
-  // bigger claims still cost less per unit (30/20 down to 90/100), same
-  // lesson as before, just with a real price tag on the choice itself.
-  // 75/100 added so success on the bigger Stage 6 maps has somewhere to go
-  // instead of forcing more repeat launches at the same 50 ceiling —
-  // ORE_HEADROOM isn't actually wired into field generation (deposit
-  // density is a flat per-100-cells constant, independent of claim), so a
-  // big claim only pays off on a map that's actually big enough to hold it.
+  // Claim size IS the energy spent to launch — see lib/energy.ts and the
+  // launch route, which debit exactly this many points from the
+  // character's persistent energy before the run starts. No money cost for
+  // claim anymore (that was CLAIM_COST, removed with the move to persistent
+  // energy — see the energy design conversation). 75/100 added so success
+  // on the bigger Stage 6 maps has somewhere to go instead of forcing more
+  // repeat launches at the same 50 ceiling — ORE_HEADROOM isn't actually
+  // wired into field generation (deposit density is a flat per-100-cells
+  // constant, independent of claim), so a big claim only pays off on a map
+  // that's actually big enough to hold it.
   CLAIM_OPTIONS: [20, 35, 50, 75, 100],
-  CLAIM_COST: { 20: 30, 35: 45, 50: 55, 75: 75, 100: 90 } as Record<
-    number,
-    number
-  >,
   AI_SURVEY: "basic" as SurveyTier, // unattended runs always buy one — that is what a survey is for
   AI_MARGIN: 1.4, // absolute floor: don't cut ore that fails to cover its own fuel
   AI_REACH: 0.2, // and never travel further than this share of the tank for ANY ore,
@@ -700,7 +696,6 @@ export function createRun(
     refuels: 0,
     survey: "none",
     surveyCost: 0,
-    claimCost: CFG.CLAIM_COST[claim] ?? 0,
     contacts: [], // fuzzy sensor returns, sharpened by repeat pings
     pings: 0,
     pingReady: 0, // step index when the next ping is allowed
@@ -1321,8 +1316,12 @@ export function score(
   // Survey is paid for upfront now (see purchaseSurvey() in
   // lib/mining-run-store.ts) — it stays out of this run's cost/net so it
   // isn't charged twice. surveyCost is still reported below, purely as a
-  // reference figure for what was already spent, not part of `cost`.
-  const cost = fuelCost + repair + CFG.LAUNCH_COST + (s.claimCost || 0);
+  // reference figure for what was already spent, not part of `cost`. Claim
+  // used to be a money cost folded into `cost` too (CLAIM_COST) — it's
+  // paid in persistent energy now, spent upfront at launch (see
+  // lib/energy.ts) instead of deducted from this run's net at the end;
+  // energyUsed/claimSpent below are what report it.
+  const cost = fuelCost + repair + CFG.LAUNCH_COST;
   return {
     units,
     value,
@@ -1332,7 +1331,6 @@ export function score(
     cost,
     launch: CFG.LAUNCH_COST,
     surveyCost: s.surveyCost || 0,
-    claimCost: s.claimCost || 0,
     survey: s.survey,
     trips: s.trip,
     energyLeft: s.energy,

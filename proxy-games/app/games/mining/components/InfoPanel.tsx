@@ -6,8 +6,7 @@ import { Swatch, KeyRow } from "@/app/games/mining/components/Swatch";
 // key. Split out from FittingPanel so it can take the wide half of the
 // fitting-phase layout instead of being squeezed under a narrow control column.
 export function InfoPanel({ claim }: { claim: number }) {
-  const claimCost = CFG.CLAIM_COST[claim] ?? 0;
-  const allInPerUnit = (CFG.LAUNCH_COST + claimCost) / claim;
+  const launchPerUnit = CFG.LAUNCH_COST / claim;
 
   return (
     <div className={`rounded-lg ${SURFACE.card} p-5`}>
@@ -118,11 +117,13 @@ export function InfoPanel({ claim }: { claim: number }) {
           extractions is a waste and will just burn fuel to complete.
         </p>
         <p>
-          Claiming big is cheaper per unit even though it costs more up front —
-          launch plus claim together work out to{" "}
-          <b className={ATOMS.textPrimary}>{allInPerUnit.toFixed(1)}</b> a unit
-          at {claim}u. Claiming small is cheap to buy and expensive per unit.
-          That&rsquo;s the bet.
+          Claiming costs <b className={ATOMS.textPrimary}>energy</b>, not
+          credits — 1 point of persistent energy per unit claimed, spent the
+          moment you launch. The flat mobilisation fee is the only credit cost
+          left, and it gets cheaper per unit the bigger you claim — it works
+          out to <b className={ATOMS.textPrimary}>{launchPerUnit.toFixed(2)}</b>{" "}
+          a unit at {claim}u. Claiming small keeps that fee cheap to cover but
+          expensive per unit. That&rsquo;s the bet.
         </p>
 
         <h4

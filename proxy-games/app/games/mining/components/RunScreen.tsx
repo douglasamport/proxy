@@ -407,7 +407,10 @@ export function RunControls({
     <div className="w-full max-w-2xl">
       <div className="flex flex-wrap gap-2">
         <ControlButton disabled={!canCut} onClick={onExtract}>
-          Extract {here && here.grade ? `(${here.units}u g${here.grade})` : ""}
+          Extract{" "}
+          {here && here.grade
+            ? `(${here.oreType.slice(0, 3).toUpperCase()} ${here.units}u g${here.grade})`
+            : ""}
         </ControlButton>
         <ControlButton disabled={!canPing} onClick={onPing}>
           {cd

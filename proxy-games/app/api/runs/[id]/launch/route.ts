@@ -8,6 +8,8 @@ import {
   loadUnlockedOreTypes,
   loadOreData,
 } from "@/lib/mining-inventory";
+import { getOrCreateCharacter } from "@/lib/characters";
+import { spendEnergy } from "@/lib/energy";
 import { CFG, applySurvey, createRun } from "@/lib/mining-engine";
 
 // POST { claim } -> the initial PublicRunView for the run.
@@ -19,6 +21,12 @@ import { CFG, applySurvey, createRun } from "@/lib/mining-engine";
 // POST /api/inventory/equip, which validates ownership itself. Survey
 // still isn't read from the body either, same reasoning — see the equip
 // route's sibling, app/api/runs/[id]/survey/route.ts.
+//
+// Claim size is paid for in persistent character energy now, not credits
+// (see lib/energy.ts) — spent here, before the run is created, so a run
+// never exists without its energy already having been paid for. Nothing
+// refunds it: an aborted/stranded/wrecked run doesn't get its energy back,
+// same as it never got its old money cost back either.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -41,6 +49,15 @@ export async function POST(
     return NextResponse.json({ error: "run not found" }, { status: 404 });
   }
 
+  const characterId = await getOrCreateCharacter(player.id, "Pilot");
+  const spend = await spendEnergy(characterId, claim);
+  if (!spend.ok) {
+    return NextResponse.json(
+      { error: "not enough energy", available: spend.available },
+      { status: 402 },
+    );
+  }
+
   const [chassis, loadout, unlockedOreTypes, oreData] = await Promise.all([
     computeChassis(player.id),
     loadoutSnapshot(player.id),
@@ -60,6 +77,11 @@ export async function POST(
     returning id
   `;
   if (!saved) {
+    // Lost a race against a concurrent launch (double-click, two tabs) —
+    // the energy already spent above belongs to nothing, since this
+    // request's run never actually activated. Refund it rather than
+    // charging twice for one launched run.
+    await sql`update characters set energy = energy + ${claim} where id = ${characterId}`;
     return NextResponse.json(
       { error: "run already launched" },
       { status: 409 },

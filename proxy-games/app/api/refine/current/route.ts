@@ -3,6 +3,8 @@ import { sql } from "@/db/client";
 import { currentPlayer } from "@/lib/auth";
 import { startSizing, loadActiveBatch } from "@/lib/refine-batch-store";
 import { loadOreOptions, GAME } from "@/lib/refine-inventory";
+import { getOrCreateCharacter } from "@/lib/characters";
+import { getEnergy } from "@/lib/energy";
 
 // POST {} -> the player's current in-progress refine batch, resumed as-is
 // if one exists (sizing or active) — a fresh sizing row is only opened when
@@ -15,6 +17,8 @@ export async function POST(_req: NextRequest) {
     return NextResponse.json({ error: "not signed in" }, { status: 401 });
   }
 
+  const characterId = await getOrCreateCharacter(player.id, "Pilot");
+
   const [row] = await sql`
     select id, phase from in_progress_runs
     where player_id = ${player.id} and game = ${GAME}
@@ -23,27 +27,30 @@ export async function POST(_req: NextRequest) {
 
   if (!row) {
     const seed = Math.floor(Math.random() * 9000) + 1000;
-    const { batchId, balance, oreOptions } = await startSizing(
-      player.id,
-      seed,
-    );
+    const [{ batchId, balance, oreOptions }, energy] = await Promise.all([
+      startSizing(player.id, seed),
+      getEnergy(characterId),
+    ]);
     return NextResponse.json({
       phase: "fitting",
       batchId,
       balance,
+      energy: energy.current,
       oreOptions,
     });
   }
 
   if (row.phase === "fitting") {
-    const [[{ balance }], oreOptions] = await Promise.all([
+    const [[{ balance }], oreOptions, energy] = await Promise.all([
       sql`select balance from players where id = ${player.id}`,
       loadOreOptions(player.id),
+      getEnergy(characterId),
     ]);
     return NextResponse.json({
       phase: "fitting",
       batchId: row.id,
       balance,
+      energy: energy.current,
       oreOptions,
     });
   }
@@ -52,14 +59,15 @@ export async function POST(_req: NextRequest) {
   if (!active) {
     // Row vanished between the two reads (rare) — fall back to a fresh bid.
     const seed = Math.floor(Math.random() * 9000) + 1000;
-    const { batchId, balance, oreOptions } = await startSizing(
-      player.id,
-      seed,
-    );
+    const [{ batchId, balance, oreOptions }, energy] = await Promise.all([
+      startSizing(player.id, seed),
+      getEnergy(characterId),
+    ]);
     return NextResponse.json({
       phase: "fitting",
       batchId,
       balance,
+      energy: energy.current,
       oreOptions,
     });
   }

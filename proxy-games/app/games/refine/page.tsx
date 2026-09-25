@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CFG,
   decantQuality,
@@ -55,6 +56,7 @@ interface FittingPayload {
   phase: "fitting";
   batchId: string;
   balance: string;
+  energy: number;
   oreOptions: OreOption[];
 }
 interface ActivePayload {
@@ -75,13 +77,19 @@ interface EndSummary {
 async function postJSON<T>(
   url: string,
   body?: unknown,
-): Promise<{ ok: true; data: T } | { ok: false; status: number }> {
+): Promise<
+  | { ok: true; data: T }
+  | { ok: false; status: number; error?: string }
+> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
   });
-  if (!res.ok) return { ok: false, status: res.status };
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    return { ok: false, status: res.status, error: body?.error };
+  }
   return { ok: true, data: await res.json() };
 }
 
@@ -100,6 +108,7 @@ const ACTION_ERR_LABEL: Record<string, string> = {
 };
 
 export default function RefinePage() {
+  const router = useRouter();
   const [batchId, setBatchId] = useState<string | null>(null);
   const [phase, setPhase] = useState<"fitting" | "active">("fitting");
   const [oreOptions, setOreOptions] = useState<OreOption[]>([]);
@@ -203,17 +212,20 @@ export default function RefinePage() {
     setBusy(false);
     if (!r.ok) {
       setError(
-        r.status === 402
-          ? "Not enough ore for that bid."
-          : r.status === 400
-            ? "No furnace equipped — visit the store."
-            : "Could not launch — try again.",
+        r.error === "not enough energy"
+          ? "Not enough energy to launch a batch."
+          : r.status === 402
+            ? "Not enough ore for that bid."
+            : r.status === 400
+              ? "No furnace equipped — visit the store."
+              : "Could not launch — try again.",
       );
       return;
     }
     setPhase("active");
     setState(r.data.state);
     fetchOwnedFlags();
+    router.refresh(); // energy spent — refresh the header's server-rendered figure
   }
 
   // Every lane action reports back whether it actually did anything — a

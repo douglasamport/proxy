@@ -87,6 +87,12 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
 }
 
+.user-energy {
+  font-variant-numeric: tabular-nums;
+  color: #e0b84a;
+  font-weight: 600;
+}
+
 .site-footer {
   border-top: 1px solid #232a31;
   padding: 16px 20px;

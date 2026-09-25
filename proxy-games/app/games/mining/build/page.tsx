@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { CFG, fuelMult } from "@/lib/mining-engine";
 import type { StatKey } from "@/lib/mining-engine";
 import type { CatalogItem } from "@/lib/mining-inventory";
+import type { SlotType } from "@/lib/proxies";
 import { categoryIcon, FullBuildIcon } from "@/components/game-shell/icons";
 import { GameHeader } from "@/components/game-shell/GameHeader";
 import { FilterBar } from "@/components/game-shell/FilterBar";
@@ -22,8 +23,22 @@ import { useInventory } from "../layout";
 // shows live chassis stats, recomputed after every equip change. What's
 // equipped here is what the next run launches with (see FittingPanel's
 // read-only Chassis section on the fitting page).
+//
+// "Equipped" is a real chassis_slots row now, not a quantity column (see
+// lib/mining-inventory.ts and db/020_chassis_slots.sql) — EquipCard's
+// one-box-per-owned-copy toggle is kept as the interaction (still the
+// right shape for "click to fit/unfit"), but each click now resolves to a
+// specific slot id: the first empty slot of the right type to fit one in,
+// the first slot holding that item to pull one out of. Which physical
+// slot a given copy lands in is otherwise not meaningful yet — that only
+// starts to matter once slots can differ from each other (e.g. arena mount
+// bonuses), at which point this screen would grow real per-slot pickers.
 const FULL_BUILD = "__full__";
 const EQUIPMENT_CATEGORY = "equipment";
+
+function slotTypeForCategory(category: string): SlotType {
+  return category === EQUIPMENT_CATEGORY ? "carriage" : "standard";
+}
 
 function categoryLabel(cat: string): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1);
@@ -47,13 +62,10 @@ export default function BuildPage() {
   const {
     catalog,
     inventory,
-    slotTotal,
-    equipmentSlotTotal,
+    slots,
     chassis,
     balance,
     load,
-    equippedChassisTotal,
-    equippedEquipmentTotal,
   } = useInventory();
 
   // 'expansion' and 'equipment_slot' aren't equippable — they're one-time
@@ -77,52 +89,99 @@ export default function BuildPage() {
     [inventory],
   );
 
-  const chassisSlotsLeft = slotTotal - equippedChassisTotal;
-  const equipmentSlotsLeft = equipmentSlotTotal - equippedEquipmentTotal;
+  // Installed count per item_key, and empty-slot count per slot_type —
+  // both read straight off the real chassis_slots rows instead of a
+  // separate equipped_quantity/slotTotal subtraction.
+  const installedByItem = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const slot of slots) {
+      if (!slot.installed_item_id) continue;
+      totals.set(
+        slot.installed_item_id,
+        (totals.get(slot.installed_item_id) ?? 0) + 1,
+      );
+    }
+    return totals;
+  }, [slots]);
+
+  const emptySlotsByType = useMemo(() => {
+    const totals: Record<SlotType, number> = { standard: 0, carriage: 0 };
+    for (const slot of slots) {
+      if (!slot.installed_item_id) totals[slot.slot_type]++;
+    }
+    return totals;
+  }, [slots]);
+
+  const chassisSlotsLeft = emptySlotsByType.standard;
+  const equipmentSlotsLeft = emptySlotsByType.carriage;
 
   const equippedByCategory = useMemo(() => {
     const byKey = new Map(catalog.map((c) => [c.item_key, c]));
     const totals = new Map<string, number>();
-    for (const row of inventory) {
-      const item = byKey.get(row.item_key);
-      if (!item || row.equipped_quantity <= 0) continue;
-      totals.set(
-        item.category,
-        (totals.get(item.category) ?? 0) + row.equipped_quantity,
-      );
+    for (const [itemKey, count] of installedByItem) {
+      const item = byKey.get(itemKey);
+      if (!item) continue;
+      totals.set(item.category, (totals.get(item.category) ?? 0) + count);
     }
     return totals;
-  }, [catalog, inventory]);
+  }, [catalog, installedByItem]);
+
+  const equippedChassisTotal = slots.filter(
+    (s) => s.slot_type === "standard" && s.installed_item_id,
+  ).length;
+  const equippedEquipmentTotal = slots.filter(
+    (s) => s.slot_type === "carriage" && s.installed_item_id,
+  ).length;
 
   // Build only ever shows what's actually owned — an item you haven't
   // bought yet isn't something to equip, it's something to go buy (see the
   // Store). Full build narrows further, to what's currently equipped.
   const items = useMemo(() => {
     if (effectiveCategory === FULL_BUILD) {
-      return catalog.filter(
-        (c) => (invByKey.get(c.item_key)?.equipped_quantity ?? 0) > 0,
-      );
+      return catalog.filter((c) => (installedByItem.get(c.item_key) ?? 0) > 0);
     }
     return catalog.filter(
       (c) =>
         c.category === effectiveCategory &&
         (invByKey.get(c.item_key)?.owned_quantity ?? 0) > 0,
     );
-  }, [catalog, effectiveCategory, invByKey]);
+  }, [catalog, effectiveCategory, invByKey, installedByItem]);
 
-  async function setEquipped(itemKey: string, quantity: number) {
-    setBusyKey(itemKey);
+  async function equipOne(item: CatalogItem) {
+    const slotType = slotTypeForCategory(item.category);
+    const target = slots.find(
+      (s) => s.slot_type === slotType && !s.installed_item_id,
+    );
+    if (!target) {
+      setError("No free slot for that item.");
+      return;
+    }
+    await postSlot(item.item_key, target.id, item.item_key);
+  }
+
+  async function unequipOne(item: CatalogItem) {
+    const target = slots.find((s) => s.installed_item_id === item.item_key);
+    if (!target) return;
+    await postSlot(item.item_key, target.id, null);
+  }
+
+  async function postSlot(
+    busyItemKey: string,
+    slotId: string,
+    itemKey: string | null,
+  ) {
+    setBusyKey(busyItemKey);
     setError("");
     const res = await fetch("/api/inventory/equip", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ item_key: itemKey, quantity }),
+      body: JSON.stringify({ slot_id: slotId, item_key: itemKey }),
     });
     setBusyKey(null);
     if (!res.ok) {
       setError(
         res.status === 400
-          ? "Not enough owned, or that exceeds your slot cap."
+          ? "Not enough owned, or that item doesn't fit this slot."
           : "Could not update loadout — try again.",
       );
       return;
@@ -264,13 +323,15 @@ export default function BuildPage() {
                   ownedQuantity={
                     invByKey.get(item.item_key)?.owned_quantity ?? 0
                   }
-                  equippedQuantity={
-                    invByKey.get(item.item_key)?.equipped_quantity ?? 0
-                  }
+                  equippedQuantity={installedByItem.get(item.item_key) ?? 0}
                   roomLeft={roomLeftForCategory(item.category)}
                   busy={busyKey === item.item_key}
                   accent={accentForCategory(item.category)}
-                  onEquippedChange={(next) => setEquipped(item.item_key, next)}
+                  onEquippedChange={(next) =>
+                    next > (installedByItem.get(item.item_key) ?? 0)
+                      ? equipOne(item)
+                      : unequipOne(item)
+                  }
                 />
               ))}
             </div>

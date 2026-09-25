@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { sql } from '@/db/client';
 import { grantStarterKit } from '@/lib/mining-inventory';
 import { grantRefineStarterKit } from '@/lib/refine-inventory';
+import { getOrCreateCharacter } from '@/lib/characters';
 
 const SESSION_COOKIE = 'sid';
 const TOKEN_TTL_MIN = 15;
@@ -30,6 +31,7 @@ export async function requestLogin(email: string) {
   `;
 
   if (player.inserted) {
+    await getOrCreateCharacter(player.id, normalised.split('@')[0]);
     await grantStarterKit(player.id);
     await grantRefineStarterKit(player.id);
   }

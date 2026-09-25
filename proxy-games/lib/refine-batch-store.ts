@@ -20,6 +20,8 @@ import {
 import type { BatchState, RefineRig, BatchStatus } from "./refine-engine";
 import type { OreTypeKey } from "./mining-inventory";
 import { loadOreData } from "./mining-inventory";
+import { getOrCreateCharacter } from "./characters";
+import { spendEnergy } from "./energy";
 import {
   GAME,
   oreItemKey,
@@ -117,13 +119,22 @@ export type LaunchResult =
   | { kind: "ok"; state: BatchState }
   | { kind: "not_found" }
   | { kind: "insufficient_ore" }
+  | { kind: "insufficient_energy"; available: number }
   | { kind: "no_furnace" };
 
-// Commits the bid: debits ore up front (same "spend before you see the
-// field" shape as mining's claim cost), snapshots the rig, and flips the
-// row to active. If bidUnits turns out to be unplayable (no furnace
-// equipped), nothing is charged — the furnace check runs before the ore
-// debit. oreType is fixed for the whole batch — see BatchState's comment.
+// Flat energy cost to launch a batch, independent of bid size — see the
+// energy design conversation: ore is the thing you're scaling up or down
+// (bid big or small), energy is just the cost of running the furnace at
+// all, so a smart bid gets more out of the same 25 points whether that's
+// 100 ore or 1000.
+const REFINE_LAUNCH_ENERGY_COST = 25;
+
+// Commits the bid: spends the flat launch energy, debits ore (same "spend
+// before you see the outcome" shape as mining's claim), snapshots the rig,
+// and flips the row to active. If bidUnits turns out to be unplayable (no
+// furnace equipped) or unaffordable (not enough ore or energy), nothing is
+// charged — every check runs before anything is actually spent. oreType is
+// fixed for the whole batch — see BatchState's comment.
 export async function launchBatch(
   batchRowId: string,
   playerId: string,
@@ -140,16 +151,38 @@ export async function launchBatch(
     return { kind: "insufficient_ore" };
   }
 
+  const characterId = await getOrCreateCharacter(playerId, "Pilot");
+  const spend = await spendEnergy(characterId, REFINE_LAUNCH_ENERGY_COST);
+  if (!spend.ok) {
+    return { kind: "insufficient_energy", available: spend.available };
+  }
+
   await debitOre(playerId, oreType, bidUnits);
   const oreData = await loadOreData();
   const state = createBatch(fitting.seed, rig, bidUnits, oreType, oreData);
 
-  await sql`
+  const [saved] = await sql`
     update in_progress_runs
     set phase = 'active', claim = ${bidUnits}, loadout = ${JSON.stringify(rig)}::jsonb,
         state = ${JSON.stringify(state)}::jsonb, updated_at = now()
-    where id = ${batchRowId} and player_id = ${playerId}
+    where id = ${batchRowId} and player_id = ${playerId} and phase = 'fitting'
+    returning id
   `;
+  if (!saved) {
+    // Lost a race against a concurrent launch — refund both, same reasoning
+    // as the equivalent guard in app/api/runs/[id]/launch/route.ts.
+    await sql`
+      update characters set energy = energy + ${REFINE_LAUNCH_ENERGY_COST}
+      where id = ${characterId}
+    `;
+    await sql`
+      insert into player_inventory (player_id, item_key, owned_quantity)
+      values (${playerId}, ${oreItemKey(oreType)}, ${bidUnits})
+      on conflict (player_id, item_key)
+      do update set owned_quantity = player_inventory.owned_quantity + excluded.owned_quantity, updated_at = now()
+    `;
+    return { kind: "not_found" };
+  }
 
   return { kind: "ok", state };
 }

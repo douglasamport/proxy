@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { currentPlayer } from "@/lib/auth";
+import { getOrCreateCharacter } from "@/lib/characters";
+import { getEnergy } from "@/lib/energy";
 
 function formatBalance(balance: string | undefined) {
   const n = balance ? Number(balance) : 0;
@@ -10,10 +12,19 @@ function formatBalance(balance: string | undefined) {
 }
 
 // Two rows: a nav bar (brand + auth on the left, links on the right) and a
-// user bar underneath (identity + balance, shared across every game — see
-// db/002_balance.sql). Logo art is still a placeholder; the balance is real.
+// user bar underneath (identity + balance + energy, shared across every
+// game — see db/002_balance.sql and db/022_energy.sql). Logo art is still
+// a placeholder; balance and energy are real. Energy is a server-rendered
+// snapshot like balance is — it doesn't tick up live between page loads,
+// it just reflects whatever it actually was at render time (regen is
+// lazy, computed on read — see lib/energy.ts). Mining/refine call
+// router.refresh() after anything that spends either so this stays
+// current right after a launch, same pattern balance already used.
 export default async function Header() {
   const player = await currentPlayer();
+  const energy = player
+    ? await getEnergy(await getOrCreateCharacter(player.id, "Pilot"))
+    : null;
 
   return (
     <header className="site-header">
@@ -53,6 +64,11 @@ export default async function Header() {
           <Link href="/inventory" className="user-link">
             Inventory
           </Link>
+          {energy && (
+            <span className="user-energy" title={`${Math.floor(energy.cap)} max`}>
+              ⚡ {Math.floor(energy.current)} / {Math.floor(energy.cap)}
+            </span>
+          )}
           <span className="user-balance">
             ${formatBalance(player?.balance)}
           </span>

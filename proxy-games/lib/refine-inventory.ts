@@ -19,24 +19,16 @@ import {
   loadInventory,
   purchaseItem,
   sellItem,
-  setEquipped,
 } from "./mining-inventory";
 import type {
   CatalogItem,
   InventoryRow,
   PurchaseItemResult,
   SellItemResult,
-  SetEquippedResult,
 } from "./mining-inventory";
 
-export { loadCatalog, loadInventory, purchaseItem, sellItem, setEquipped };
-export type {
-  CatalogItem,
-  InventoryRow,
-  PurchaseItemResult,
-  SellItemResult,
-  SetEquippedResult,
-};
+export { loadCatalog, loadInventory, purchaseItem, sellItem };
+export type { CatalogItem, InventoryRow, PurchaseItemResult, SellItemResult };
 
 export const GAME = "refine";
 

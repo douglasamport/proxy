@@ -303,7 +303,19 @@ export const ORE_GRADE_COLORS: Record<
   lanthanum: oreRamp(146),
   silica: oreRamp(166),
   zinc: oreRamp(187),
-  silver: oreRamp(208),
+  // Silver's hue (208, only 21° from zinc's 187) read as barely
+  // distinguishable blue-on-cyan — the eye is worse at hue discrimination
+  // in that range than the even 21° spacing elsewhere accounts for. Given
+  // its own fixed, low-saturation ramp instead (same exception copper
+  // already gets), so it reads as neutral silver-gray rather than another
+  // shade of blue — unmistakable from zinc at a glance, and more
+  // thematically correct besides.
+  silver: [
+    "hsl(208, 8%, 46%)",
+    "hsl(208, 10%, 60%)",
+    "hsl(208, 12%, 74%)",
+    "hsl(208, 15%, 90%)",
+  ] as const,
   platinum: oreRamp(229),
   tantalum: oreRamp(250),
   neodymium: oreRamp(270),

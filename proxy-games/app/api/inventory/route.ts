@@ -7,10 +7,11 @@ import {
   loadCatalog,
   loadEquipmentAvailable,
   loadInventory,
+  loadMiningSlots,
 } from '@/lib/mining-inventory';
 
 // GET /api/inventory?game=mining ->
-//   { catalog, inventory, balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable }
+//   { catalog, inventory, balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable, slots }
 // Shared read used by the Store (browse + buy), the Build screen (equip
 // from what's owned), and the fitting/run pages (read-only chassis
 // preview, "use X" buttons) — one source of truth for all of them, rather
@@ -20,6 +21,9 @@ import {
 // getting that math wrong. `equipmentAvailable` is the list of equipment
 // item_keys currently equipped — checked live, not snapshotted, since
 // those can run out mid-run (see /api/runs/[id]/siphon and /scan-line).
+// `slots` is the character's active mining proxy's real chassis_slots rows
+// (id/slot_type/installed_item_id) — always [] for a game that hasn't
+// moved onto the proxy/slot model yet (see lib/mining-inventory.ts).
 export async function GET(req: NextRequest) {
   const player = await currentPlayer({ touch: false });
   if (!player) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
@@ -27,16 +31,17 @@ export async function GET(req: NextRequest) {
   const game = req.nextUrl.searchParams.get('game');
   if (!game) return NextResponse.json({ error: 'missing game' }, { status: 400 });
 
-  const [catalog, inventory, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable] = await Promise.all([
+  const [catalog, inventory, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable, slots] = await Promise.all([
     loadCatalog(game),
     loadInventory(player.id, game),
     computeChassis(player.id),
     getSlotTotal(player.id),
     getEquipmentSlotTotal(player.id),
     loadEquipmentAvailable(player.id),
+    game === 'mining' ? loadMiningSlots(player.id) : Promise.resolve([]),
   ]);
 
   return NextResponse.json({
-    catalog, inventory, balance: player.balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable,
+    catalog, inventory, balance: player.balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable, slots,
   });
 }

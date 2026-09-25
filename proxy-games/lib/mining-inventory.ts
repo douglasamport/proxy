@@ -1,6 +1,16 @@
 import { sql } from "@/db/client";
 import { CFG, chassisFromEffects } from "./mining-engine";
 import type { Chassis, StatKey } from "./mining-engine";
+import { getOrCreateCharacter } from "./characters";
+import {
+  categoryFitsSlot,
+  countInstalledElsewhere,
+  countSlots,
+  getOrCreateActiveProxy,
+  installItem as installIntoChassisSlot,
+  loadSlots,
+} from "./proxies";
+import type { ChassisSlot } from "./proxies";
 
 export interface CatalogItem {
   item_key: string;
@@ -62,10 +72,11 @@ export async function loadCatalog(game: string): Promise<CatalogItem[]> {
 // Scoped to `game`, not just `player_id` — player_inventory has no game
 // column of its own (only item_catalog does), and a player owns/equips
 // items across every game from the same shared table. Without this join,
-// a game's inventory read (and the equipped-count math built on top of it,
-// client-side in InventoryContext.tsx) silently includes every other
-// game's equipped items too — see setEquipped()'s cap-check query below
-// for the matching fix on the write side.
+// a game's inventory read silently includes every other game's rows too.
+// `equipped_quantity` is always 0 for mining rows now (see
+// db/021_migrate_mining_proxy.sql) — chassis_slots is the source of truth
+// for what's installed; this column only still means something for games
+// (refine) that haven't moved onto the slot model yet.
 export async function loadInventory(
   playerId: string,
   game: string,
@@ -141,10 +152,13 @@ export const FLAT_SELL_PRICE_CATEGORIES = new Set(["ore", "refined"]);
 
 // Mirrors purchaseItem()'s shape in reverse: credit first (atomic, so a
 // race can't double-sell past what's actually available), then the
-// inventory/ledger update as a batch. Only unequipped copies can be sold —
-// owned_quantity drops, equipped_quantity is untouched, so selling never
-// silently unequips something still fitted (sell the copies you're not
-// using, or unequip first).
+// inventory/ledger update as a batch. Only copies that aren't currently
+// installed anywhere can be sold. For mining, "installed" means occupying
+// a chassis_slots row on one of this character's proxies (see
+// countInstalledElsewhere in lib/proxies.ts) — the same slot model
+// equip/unequip uses, so sell can never leave a slot pointing at a
+// quantity that's dropped below what's actually owned. Other games still
+// read player_inventory.equipped_quantity, the pre-slot-model shape.
 export async function sellItem(
   playerId: string,
   game: string,
@@ -162,7 +176,15 @@ export async function sellItem(
   if (!row) return { kind: "not_found" };
   if (!row.sellable || row.sell_value == null) return { kind: "not_sellable" };
 
-  const available = row.owned_quantity - row.equipped_quantity;
+  const reserved =
+    game === "mining"
+      ? await (async () => {
+          const characterId = await getOrCreateCharacter(playerId, "Pilot");
+          return countInstalledElsewhere(characterId, itemKey);
+        })()
+      : row.equipped_quantity;
+
+  const available = row.owned_quantity - reserved;
   if (quantity > available) return { kind: "insufficient_owned" };
 
   const unitPrice = FLAT_SELL_PRICE_CATEGORIES.has(row.category)
@@ -187,12 +209,10 @@ export async function sellItem(
   return { kind: "ok", balance };
 }
 
-export type SetEquippedResult = "ok" | "not_owned" | "over_cap";
-
-// Equipment items (ore siphon, line scanner) draw against a completely
-// separate slot pool from chassis gear — see getEquipmentSlotTotal() below
-// — so they don't compete with fuel tanks and armor plate for the same 10
-// (+expansions) slots.
+// Equipment items (ore siphon, line scanner) — and, later, the proxy-
+// weapon class — only fit carriage slots (see CARRIAGE_CATEGORIES in
+// lib/proxies.ts). Kept here too since a handful of call sites already
+// reference it by this name.
 export const EQUIPMENT_CATEGORY = "equipment";
 
 // Mined ore, stockpiled at run-end instead of collected as credits (see
@@ -278,73 +298,118 @@ export async function loadUnlockedOreTypes(
   ];
 }
 
-// Equipping/unequipping never touches the balance — the item's already
-// paid for, this only decides what's currently installed. Not wrapped in
-// the same race-proof machinery as purchaseItem: this is a player editing
-// their own loadout, not a money movement, so a narrow race window between
-// the ownership check and the slot-cap check is an acceptable tradeoff
-// here (worst case, a concurrent double-click briefly exceeds the cap by
-// one before the next read corrects it).
-export async function setEquipped(
+// --- Chassis/slot model (mining's proxy) ---------------------------------
+//
+// mining is the first game moved onto the shared proxies/chassis_slots
+// shape (see db/020_chassis_slots.sql, db/021_migrate_mining_proxy.sql,
+// and the Smashies/arena metagame outline) — "equipped" is no longer a
+// quantity on player_inventory, it's a real chassis_slots row pointing at
+// an item_key. Every function below resolves playerId -> character ->
+// this character's *active* mining proxy (see active_proxy_selection);
+// since a character can own more than one proxy, "the chassis" always
+// means whichever one is currently selected for 'mining', never just "a"
+// proxy.
+
+const MINING_GAME = "mining";
+const MINING_PROXY_NAME = "Mining Chassis";
+
+async function resolveMiningProxy(
   playerId: string,
+): Promise<{ characterId: string; proxyId: string }> {
+  const characterId = await getOrCreateCharacter(playerId, "Pilot");
+  const proxyId = await getOrCreateActiveProxy(
+    characterId,
+    MINING_GAME,
+    MINING_PROXY_NAME,
+    CFG.SLOT_TOTAL,
+  );
+  return { characterId, proxyId };
+}
+
+export async function loadMiningSlots(playerId: string): Promise<ChassisSlot[]> {
+  const { proxyId } = await resolveMiningProxy(playerId);
+  return loadSlots(proxyId);
+}
+
+export type InstallResult =
+  | "ok"
+  | "not_owned"
+  | "wrong_slot_type"
+  | "slot_not_found";
+
+// Installing is what claims a copy now — there's no separate "equip"
+// quantity to keep in sync. Ownership is checked as owned_quantity minus
+// however many copies are already installed elsewhere across this
+// character's proxies (see countInstalledElsewhere in lib/proxies.ts).
+// Not wrapped in purchaseItem's race-proof machinery, same tradeoff the
+// old setEquipped() accepted — this is a player editing their own
+// loadout, not a money movement.
+export async function installInSlot(
+  playerId: string,
+  slotId: string,
   itemKey: string,
-  quantity: number,
-): Promise<SetEquippedResult> {
-  const [row] = await sql`
-    select pi.owned_quantity, ic.category
-    from player_inventory pi
-    join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and pi.item_key = ${itemKey} and ic.game = 'mining'
+): Promise<InstallResult> {
+  const { characterId, proxyId } = await resolveMiningProxy(playerId);
+
+  const [slot] = await sql`
+    select id, slot_type, installed_item_id from chassis_slots
+    where id = ${slotId} and proxy_id = ${proxyId}
   `;
-  if (!row || quantity < 0 || quantity > row.owned_quantity) return "not_owned";
+  if (!slot) return "slot_not_found";
+  if (slot.installed_item_id === itemKey) return "ok";
 
-  const isEquipment = row.category === EQUIPMENT_CATEGORY;
-  const cap = isEquipment
-    ? await getEquipmentSlotTotal(playerId)
-    : await getSlotTotal(playerId);
-
-  // Scoped to the same pool the item being changed belongs to (equipment
-  // vs chassis gear) AND to game = 'mining' — player_inventory has no game
-  // column of its own, so without this a refine item equipped anywhere
-  // (e.g. its starter kit, granted into this same shared table — see
-  // grantRefineStarterKit() in lib/refine-inventory.ts) silently counts
-  // against mining's chassis-slot cap too. This is the exact bug behind
-  // new players landing on a 16/10-filled Build screen: 10 mining starter
-  // items + 6 refine starter items, summed together with no game boundary.
-  const [{ total }] = await sql`
-    select coalesce(sum(pi.equipped_quantity), 0)::int as total
-    from player_inventory pi
-    join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and pi.item_key != ${itemKey} and ic.game = 'mining'
-      and (ic.category = ${EQUIPMENT_CATEGORY}) = ${isEquipment}
+  const [item] = await sql`
+    select category from item_catalog
+    where item_key = ${itemKey} and game = ${MINING_GAME} and active = true
   `;
-  if (total + quantity > cap) return "over_cap";
+  if (!item || !categoryFitsSlot(item.category, slot.slot_type)) {
+    return "wrong_slot_type";
+  }
 
-  await sql`
-    update player_inventory set equipped_quantity = ${quantity}, updated_at = now()
+  const [owned] = await sql`
+    select owned_quantity from player_inventory
     where player_id = ${playerId} and item_key = ${itemKey}
   `;
+  const ownedQuantity = owned?.owned_quantity ?? 0;
+  const installedElsewhere = await countInstalledElsewhere(
+    characterId,
+    itemKey,
+    slotId,
+  );
+  if (ownedQuantity - installedElsewhere < 1) return "not_owned";
+
+  await installIntoChassisSlot(slotId, itemKey);
   return "ok";
 }
 
-// Not equippable like everything else — owning one permanently raises
-// slot capacity by exactly 1, always in effect. Its equipped_quantity
-// stays 0 forever (see purchaseChassisExpansion()) so it never counts
-// against the very cap it's expanding.
+export async function clearSlot(
+  playerId: string,
+  slotId: string,
+): Promise<InstallResult> {
+  const { proxyId } = await resolveMiningProxy(playerId);
+  const [slot] =
+    await sql`select id from chassis_slots where id = ${slotId} and proxy_id = ${proxyId}`;
+  if (!slot) return "slot_not_found";
+  await installIntoChassisSlot(slotId, null);
+  return "ok";
+}
+
+// Not equippable like everything else — owning one used to permanently
+// raise slot capacity by 1. Now that expanding writes a real chassis_slots
+// row directly (see purchaseChassisExpansion below), this key only still
+// matters as the item_catalog row that prices the next expansion.
 export const EXPANSION_ITEM_KEY = "chassis_expansion";
 
 export async function getSlotTotal(playerId: string): Promise<number> {
-  const [row] = await sql`
-    select owned_quantity from player_inventory
-    where player_id = ${playerId} and item_key = ${EXPANSION_ITEM_KEY}
-  `;
-  return CFG.SLOT_TOTAL + (row?.owned_quantity ?? 0);
+  const { proxyId } = await resolveMiningProxy(playerId);
+  return countSlots(proxyId, "standard");
 }
 
-// Each expansion costs double the last one — the catalog's `cost` for
-// chassis_expansion is just the base price (the first one); the doubling
-// itself is the mechanic, not data, so it lives here rather than as a
-// stored-per-purchase number. +1 slot capacity, always, no equip step.
+// Each expansion costs double the last one, based on how many standard
+// slots this specific proxy already has beyond the base CFG.SLOT_TOTAL —
+// per-proxy, not per-player, since a character can own more than one
+// chassis and each has its own slot count. +1 standard slot, empty, no
+// item attached.
 export async function purchaseChassisExpansion(
   playerId: string,
   game: string,
@@ -353,11 +418,9 @@ export async function purchaseChassisExpansion(
     await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and game = ${game} and active = true`;
   if (!item) return { kind: "not_found" };
 
-  const [owned] = await sql`
-    select owned_quantity from player_inventory
-    where player_id = ${playerId} and item_key = ${EXPANSION_ITEM_KEY}
-  `;
-  const level = owned?.owned_quantity ?? 0;
+  const { proxyId } = await resolveMiningProxy(playerId);
+  const standardCount = await countSlots(proxyId, "standard");
+  const level = Math.max(0, standardCount - CFG.SLOT_TOTAL);
   const cost = Number(item.cost) * 2 ** level;
 
   const [deducted] = await sql`
@@ -368,12 +431,7 @@ export async function purchaseChassisExpansion(
   if (!deducted) return { kind: "insufficient_funds" };
 
   await sql.transaction([
-    sql`
-      insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
-      values (${playerId}, ${EXPANSION_ITEM_KEY}, 1, 0)
-      on conflict (player_id, item_key)
-      do update set owned_quantity = player_inventory.owned_quantity + 1, updated_at = now()
-    `,
+    sql`insert into chassis_slots (proxy_id, slot_type) values (${proxyId}, 'standard')`,
     sql`
       insert into balance_transactions (player_id, game, reason, delta)
       values (${playerId}, ${game}, 'chassis_expansion', ${-cost})
@@ -384,16 +442,13 @@ export async function purchaseChassisExpansion(
 }
 
 // A single, very expensive slot for single-use field tools (ore siphon,
-// line scanner) — not a repeatable doubling purchase like chassis
-// expansion. One slot, period; see purchaseEquipmentSlotUnlock().
+// line scanner) — one carriage slot, period, not a repeatable doubling
+// purchase like chassis expansion. See purchaseEquipmentSlotUnlock().
 export const EQUIPMENT_SLOT_KEY = "equipment_slot_unlock";
 
 export async function getEquipmentSlotTotal(playerId: string): Promise<number> {
-  const [row] = await sql`
-    select owned_quantity from player_inventory
-    where player_id = ${playerId} and item_key = ${EQUIPMENT_SLOT_KEY}
-  `;
-  return row?.owned_quantity ?? 0; // 0 until bought, capped at 1 below
+  const { proxyId } = await resolveMiningProxy(playerId);
+  return countSlots(proxyId, "carriage");
 }
 
 export type PurchaseEquipmentSlotResult =
@@ -411,6 +466,10 @@ export async function purchaseEquipmentSlotUnlock(
   if (!item) return { kind: "not_found" };
   const cost = Number(item.cost);
 
+  const { proxyId } = await resolveMiningProxy(playerId);
+  const carriageCount = await countSlots(proxyId, "carriage");
+  if (carriageCount >= 1) return { kind: "already_owned" };
+
   const [deducted] = await sql`
     update players set balance = balance - ${cost}
     where id = ${playerId} and balance >= ${cost}
@@ -418,90 +477,82 @@ export async function purchaseEquipmentSlotUnlock(
   `;
   if (!deducted) return { kind: "insufficient_funds" };
 
-  // "on conflict do nothing" makes the insert a race-proof one-time gate —
-  // a row for this key can only ever mean "already owns the slot", so if
-  // it already existed this returns nothing and the purchase is refunded,
-  // the same way purchaseSurvey() refunds an orphaned conditional write.
-  const results = await sql.transaction([
-    sql`
-      insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
-      values (${playerId}, ${EQUIPMENT_SLOT_KEY}, 1, 0)
-      on conflict (player_id, item_key) do nothing
-      returning item_key
-    `,
+  await sql.transaction([
+    sql`insert into chassis_slots (proxy_id, slot_type) values (${proxyId}, 'carriage')`,
     sql`
       insert into balance_transactions (player_id, game, reason, delta)
       values (${playerId}, ${game}, 'equipment_slot_unlock', ${-cost})
     `,
   ]);
 
-  const inserted = results[0] as { item_key: string }[];
-  if (!inserted.length) {
-    await sql`update players set balance = balance + ${cost} where id = ${playerId}`;
-    return { kind: "already_owned" };
-  }
-
   return { kind: "ok", balance: deducted.balance };
 }
 
 // Whether the player currently has a usable one of this equipped — checked
-// live against player_inventory at the moment a run action tries to use
-// it, not snapshotted at launch like the rest of the loadout, since the
-// whole point is that it can run out mid-run.
+// live against chassis_slots at the moment a run action tries to use it,
+// not snapshotted at launch like the rest of the loadout, since the whole
+// point is that it can run out mid-run.
 export async function hasEquippedConsumable(
   playerId: string,
   itemKey: string,
 ): Promise<boolean> {
-  const [row] = await sql`
-    select equipped_quantity from player_inventory
-    where player_id = ${playerId} and item_key = ${itemKey}
+  const { proxyId } = await resolveMiningProxy(playerId);
+  const rows = await sql`
+    select 1 from chassis_slots
+    where proxy_id = ${proxyId} and installed_item_id = ${itemKey}
   `;
-  return (row?.equipped_quantity ?? 0) > 0;
+  return rows.length > 0;
 }
 
 // Called only after the run-state mutation it enabled has already
 // succeeded (err-free) — a rejected/no-op use shouldn't cost the item.
-// Owned and equipped drop together: nothing is left "equipped" once the
-// only copy is gone.
+// Clears whichever slot has it installed and drops the owned copy
+// together — nothing is left "installed" once the only copy is gone.
 export async function consumeEquippedItem(
   playerId: string,
   itemKey: string,
 ): Promise<void> {
-  await sql`
-    update player_inventory
-    set owned_quantity = owned_quantity - 1, equipped_quantity = equipped_quantity - 1, updated_at = now()
-    where player_id = ${playerId} and item_key = ${itemKey} and equipped_quantity > 0
+  const { proxyId } = await resolveMiningProxy(playerId);
+  const [slot] = await sql`
+    select id from chassis_slots
+    where proxy_id = ${proxyId} and installed_item_id = ${itemKey}
+    limit 1
   `;
+  if (!slot) return;
+
+  await sql.transaction([
+    sql`update chassis_slots set installed_item_id = null, updated_at = now() where id = ${slot.id}`,
+    sql`
+      update player_inventory set owned_quantity = owned_quantity - 1, updated_at = now()
+      where player_id = ${playerId} and item_key = ${itemKey} and owned_quantity > 0
+    `,
+  ]);
 }
 
-// Item keys currently equipped in the equipment slot(s) — what the client
-// uses to decide which "use X" buttons to show during a run.
+// Item keys currently installed in a carriage slot — what the client uses
+// to decide which "use X" buttons to show during a run.
 export async function loadEquipmentAvailable(
   playerId: string,
 ): Promise<string[]> {
+  const { proxyId } = await resolveMiningProxy(playerId);
   const rows = await sql`
-    select pi.item_key from player_inventory pi
-    join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and ic.category = ${EQUIPMENT_CATEGORY} and pi.equipped_quantity > 0
+    select installed_item_id from chassis_slots
+    where proxy_id = ${proxyId} and slot_type = 'carriage' and installed_item_id is not null
   `;
-  return rows.map((r) => r.item_key as string);
+  return rows.map((r) => r.installed_item_id as string);
 }
 
 // Granted once, at account creation (see requestLogin() in lib/auth.ts,
 // which only calls this for a genuinely new player row, never a returning
-// one). Unlike BASELINE_* below — an invisible stat floor applied at
-// compute time, regardless of ownership — this is real owned+equipped
-// player_inventory, the same as anything bought from the store: it shows
-// up on the Build screen, it can be sold, it counts against SLOT_TOTAL.
-// The point is a first run that's actually survivable without the player
-// having to guess what to buy first (see build-spec-ore-progression.md's
-// "starter phase" discussion) — BASELINE_DRIVE/STEER/ARMOUR/CARGO already
-// cover everything except fuel, so a bare-baseline chassis has 0 fuel
-// capacity and can't move at all.
+// one, and creates the character + mining proxy first). Unlike
+// BASELINE_* below — an invisible stat floor applied at compute time,
+// regardless of ownership — this is real owned inventory, installed into
+// real slots on the new proxy: it shows up on the Build screen, it can be
+// sold (once unequipped), it fills real chassis_slots rows.
 //
-// Tune this table directly — it's the one place these numbers live.
-// Early read from actual play: this may need to go up, not down, even
-// with a fully-slotted 10/10 chassis the game already plays hard.
+// Tune this table directly — it's the one place these numbers live. The
+// total (10) matches CFG.SLOT_TOTAL exactly on purpose: a fresh proxy has
+// exactly enough standard slots to hold the whole starter kit.
 export const STARTER_KIT: Record<string, number> = {
   fuel_basic: 4,
   drive_basic: 3,
@@ -512,12 +563,27 @@ export const STARTER_KIT: Record<string, number> = {
 export async function grantStarterKit(playerId: string): Promise<void> {
   const writes = Object.entries(STARTER_KIT).map(
     ([itemKey, quantity]) => sql`
-      insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
-      values (${playerId}, ${itemKey}, ${quantity}, ${quantity})
+      insert into player_inventory (player_id, item_key, owned_quantity)
+      values (${playerId}, ${itemKey}, ${quantity})
       on conflict (player_id, item_key) do nothing
     `,
   );
   await sql.transaction(writes);
+
+  const { proxyId } = await resolveMiningProxy(playerId);
+  const slots = await loadSlots(proxyId);
+  const emptyStandard = slots.filter(
+    (s) => s.slot_type === "standard" && !s.installed_item_id,
+  );
+
+  let cursor = 0;
+  const installs: Promise<void>[] = [];
+  for (const [itemKey, quantity] of Object.entries(STARTER_KIT)) {
+    for (let i = 0; i < quantity && cursor < emptyStandard.length; i++) {
+      installs.push(installIntoChassisSlot(emptyStandard[cursor++].id, itemKey));
+    }
+  }
+  await Promise.all(installs);
 }
 
 // Every chassis has this much for free, before anything's equipped — one
@@ -526,7 +592,8 @@ export async function grantStarterKit(playerId: string): Promise<void> {
 // which is a divide-by-zero in the fuel-cost math (1/speed), not just an
 // undesirable default. Sourced from item_catalog itself (not hardcoded
 // numbers) so a later balance change to these items' effects moves the
-// floor too, instead of silently drifting out of sync with it.
+// floor too, instead of silently drifting out of sync with it. Unaffected
+// by the move to real chassis_slots — this floor was never a real equip.
 const BASELINE_DRIVE = "drive_basic";
 const BASELINE_STEER = "steer_basic";
 const BASELINE_ARMOUR = "armour_basic";
@@ -544,22 +611,27 @@ function addEffects(
   }
 }
 
-// Sums the baseline plus equipped-item effects into a stat-delta map, then
-// hands it to the pure chassisFromEffects() — this is the one place
-// inventory (DB) and engine (pure functions) meet.
+// Sums the baseline plus installed-slot effects into a stat-delta map,
+// then hands it to the pure chassisFromEffects() — this is the one place
+// inventory (DB) and engine (pure functions) meet. Each occupied slot
+// contributes its item's effects exactly once, whether or not the same
+// item_key also sits in another slot (that's what having two separate
+// slot rows *means* now, in place of the old equipped_quantity multiplier).
 export async function computeEffects(
   playerId: string,
 ): Promise<Partial<Record<StatKey, number>>> {
-  const [baselineRows, equippedRows] = await Promise.all([
+  const { proxyId } = await resolveMiningProxy(playerId);
+
+  const [baselineRows, slotRows] = await Promise.all([
     sql`
       select item_key, effects from item_catalog
       where item_key in (${BASELINE_DRIVE}, ${BASELINE_STEER}, ${BASELINE_ARMOUR}, ${BASELINE_CARGO})
     `,
     sql`
-      select ic.effects, pi.equipped_quantity
-      from player_inventory pi
-      join item_catalog ic on ic.item_key = pi.item_key
-      where pi.player_id = ${playerId} and pi.equipped_quantity > 0 and ic.game = 'mining'
+      select ic.effects
+      from chassis_slots cs
+      join item_catalog ic on ic.item_key = cs.installed_item_id
+      where cs.proxy_id = ${proxyId} and cs.installed_item_id is not null
     `,
   ]);
 
@@ -580,12 +652,8 @@ export async function computeEffects(
   applyBaseline(BASELINE_ARMOUR, 1);
   applyBaseline(BASELINE_CARGO, BASELINE_CARGO_QTY);
 
-  for (const row of equippedRows) {
-    addEffects(
-      effects,
-      row.effects as Partial<Record<StatKey, number>>,
-      row.equipped_quantity,
-    );
+  for (const row of slotRows) {
+    addEffects(effects, row.effects as Partial<Record<StatKey, number>>, 1);
   }
 
   return effects;
@@ -595,19 +663,20 @@ export async function computeChassis(playerId: string): Promise<Chassis> {
   return chassisFromEffects(await computeEffects(playerId));
 }
 
-// Snapshot of what's actually equipped at launch time, for runs.config —
-// replaces the old { alloc } shape.
+// Snapshot of what's actually installed at launch time, for runs.config —
+// one row per occupied item_key, quantity = how many slots hold it.
 export async function loadoutSnapshot(
   playerId: string,
 ): Promise<{ item_key: string; quantity: number }[]> {
+  const { proxyId } = await resolveMiningProxy(playerId);
   const rows = await sql`
-    select pi.item_key, pi.equipped_quantity
-    from player_inventory pi
-    join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and pi.equipped_quantity > 0 and ic.game = 'mining'
+    select installed_item_id as item_key, count(*)::int as quantity
+    from chassis_slots
+    where proxy_id = ${proxyId} and installed_item_id is not null
+    group by installed_item_id
   `;
   return rows.map((r) => ({
-    item_key: r.item_key,
-    quantity: r.equipped_quantity,
+    item_key: r.item_key as string,
+    quantity: r.quantity as number,
   }));
 }

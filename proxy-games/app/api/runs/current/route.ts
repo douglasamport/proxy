@@ -7,6 +7,8 @@ import {
   toPublicView,
 } from "@/lib/mining-run-store";
 import { loadUnlockedOreTypes, loadOreData } from "@/lib/mining-inventory";
+import { getOrCreateCharacter } from "@/lib/characters";
+import { getEnergy } from "@/lib/energy";
 import { fieldDims, surveyReport } from "@/lib/mining-engine";
 import type { SurveyTier } from "@/lib/mining-engine";
 
@@ -35,13 +37,17 @@ export async function POST(req: NextRequest) {
     order by created_at desc limit 1
   `;
 
+  const characterId = await getOrCreateCharacter(player.id, "Pilot");
+
   if (!row) {
     const seed = Math.floor(Math.random() * 9000) + 1000;
-    const [{ runId, balance }, unlockedOreTypes, oreData] = await Promise.all([
-      assignNewField(player.id, game, seed),
-      loadUnlockedOreTypes(player.id),
-      loadOreData(),
-    ]);
+    const [{ runId, balance }, unlockedOreTypes, oreData, energy] =
+      await Promise.all([
+        assignNewField(player.id, game, seed),
+        loadUnlockedOreTypes(player.id),
+        loadOreData(),
+        getEnergy(characterId),
+      ]);
     const dims = fieldDims(unlockedOreTypes, oreData);
     return NextResponse.json({
       phase: "fitting",
@@ -49,16 +55,19 @@ export async function POST(req: NextRequest) {
       survey: "none",
       report: null,
       balance,
+      energy: energy.current,
       dims,
     });
   }
 
   if (row.phase === "fitting") {
-    const [[{ balance }], unlockedOreTypes, oreData] = await Promise.all([
-      sql`select balance from players where id = ${player.id}`,
-      loadUnlockedOreTypes(player.id),
-      loadOreData(),
-    ]);
+    const [[{ balance }], unlockedOreTypes, oreData, energy] =
+      await Promise.all([
+        sql`select balance from players where id = ${player.id}`,
+        loadUnlockedOreTypes(player.id),
+        loadOreData(),
+        getEnergy(characterId),
+      ]);
     const tier = row.survey as SurveyTier;
     const report =
       tier === "none"
@@ -71,6 +80,7 @@ export async function POST(req: NextRequest) {
       survey: tier,
       report,
       balance,
+      energy: energy.current,
       dims,
     });
   }
@@ -79,11 +89,13 @@ export async function POST(req: NextRequest) {
   if (!active) {
     // The row vanished between the two reads (rare) — fall back to a fresh field.
     const seed = Math.floor(Math.random() * 9000) + 1000;
-    const [{ runId, balance }, unlockedOreTypes, oreData] = await Promise.all([
-      assignNewField(player.id, game, seed),
-      loadUnlockedOreTypes(player.id),
-      loadOreData(),
-    ]);
+    const [{ runId, balance }, unlockedOreTypes, oreData, energy] =
+      await Promise.all([
+        assignNewField(player.id, game, seed),
+        loadUnlockedOreTypes(player.id),
+        loadOreData(),
+        getEnergy(characterId),
+      ]);
     const dims = fieldDims(unlockedOreTypes, oreData);
     return NextResponse.json({
       phase: "fitting",
@@ -91,6 +103,7 @@ export async function POST(req: NextRequest) {
       survey: "none",
       report: null,
       balance,
+      energy: energy.current,
       dims,
     });
   }

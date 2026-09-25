@@ -30,6 +30,7 @@ interface FittingPanelProps {
   survey: SurveyTier;
   report: SurveyReport | null;
   balance: string | null;
+  energy: number;
   runId: string | null;
   // Field size for this player's unlocked minerals — computed server-side
   // (see fieldDims() in lib/mining-engine.ts) since it depends on license
@@ -91,13 +92,13 @@ export function FittingPanel({
   survey,
   report,
   balance,
+  energy,
   runId,
   dims,
   onClaimChange,
   onRequestSurvey,
   onLaunch,
 }: FittingPanelProps) {
-  const claimCost = CFG.CLAIM_COST[claim] ?? 0;
   const funds = balance ? Number(balance) : 0;
 
   const mult = fuelMult(ch);
@@ -161,16 +162,17 @@ export function FittingPanel({
 
       <div className={`rounded-lg ${SURFACE.card} p-4`}>
         <div className={SURFACE.label}>
-          Claim for this run · max {CFG.ENERGY_MAX}
+          Claim for this run · max {CFG.ENERGY_MAX} ·{" "}
+          {Math.floor(energy)} energy available
         </div>
         <div className="mt-2 flex gap-2">
           {CFG.CLAIM_OPTIONS.map((v) => (
             <BuyChip
               key={v}
               label={`${v}E`}
-              sub={`${CFG.CLAIM_COST[v]}cr`}
+              sub={`${v} nrg`}
               on={v === claim}
-              disabled={v !== claim && CFG.CLAIM_COST[v] > funds}
+              disabled={v !== claim && v > energy}
               accent="expansion"
               onClick={() => onClaimChange(v)}
             />
@@ -178,8 +180,10 @@ export function FittingPanel({
         </div>
         <p className={`mt-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
           Claiming this size costs{" "}
-          <b className={ATOMS.textPrimary}>{claimCost}</b>, deducted from this
-          run&rsquo;s net at the end. Freely changeable until you launch.
+          <b className={ATOMS.textPrimary}>{claim}</b> energy, spent from your
+          persistent pool the moment you launch — not credits, and not
+          refunded by the run&rsquo;s outcome. Freely changeable until you
+          launch.
         </p>
         <div
           className={`mt-3 space-y-1 border-t ${ATOMS.borderInset} pt-2 text-[11px]`}
@@ -190,7 +194,7 @@ export function FittingPanel({
           </div>
           <div className="flex justify-between">
             <span className={ATOMS.textDim}>Claim cost</span>
-            <b className={ATOMS.textPrimary}>{claimCost}</b>
+            <b className={ATOMS.textPrimary}>{claim} energy</b>
           </div>
           <div className="flex justify-between">
             <span className={ATOMS.textDim}>Hauls to carry it</span>
@@ -222,9 +226,15 @@ export function FittingPanel({
         </a>
       </div>
 
+      {claim > energy && (
+        <p className={`mb-2 text-[11px] ${ATOMS.textDanger}`}>
+          Not enough energy — this claim needs {claim}, you have{" "}
+          {Math.floor(energy)}.
+        </p>
+      )}
       <button
         onClick={onLaunch}
-        disabled={!runId}
+        disabled={!runId || claim > energy}
         className={`w-full rounded px-5 py-3 font-mono text-xs font-bold uppercase tracking-[.14em] transition ${SURFACE.btnPrimary} ${SURFACE.btnDisabled}`}
       >
         Launch run

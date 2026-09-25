@@ -56,6 +56,12 @@ export async function POST(
   if (result.kind === "insufficient_ore") {
     return NextResponse.json({ error: "not enough ore" }, { status: 402 });
   }
+  if (result.kind === "insufficient_energy") {
+    return NextResponse.json(
+      { error: "not enough energy", available: result.available },
+      { status: 402 },
+    );
+  }
 
   // launchBatch() -> createBatch() already sets state.oreData from its own
   // loadOreData() call — no need to stamp it again with the copy fetched

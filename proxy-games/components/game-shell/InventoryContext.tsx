@@ -19,6 +19,7 @@ import {
 } from "react";
 import { CFG, chassisFromEffects, Chassis } from "@/lib/mining-engine";
 import type { CatalogItem, InventoryRow } from "@/lib/mining-inventory";
+import type { ChassisSlot } from "@/lib/proxies";
 
 const EQUIPMENT_CATEGORY = "equipment";
 
@@ -37,6 +38,8 @@ interface InventoryContextType {
   setChassis: Dispatch<SetStateAction<Chassis>>;
   slotTotal: number;
   setSlotTotal: Dispatch<SetStateAction<number>>;
+  slots: ChassisSlot[];
+  setSlots: Dispatch<SetStateAction<ChassisSlot[]>>;
   load: () => Promise<void>;
   equippedChassisTotal: number;
   equippedEquipmentTotal: number;
@@ -62,6 +65,7 @@ export function InventoryProvider({
   const [balance, setBalance] = useState<string | null>(null);
   const [chassis, setChassis] = useState<Chassis>(() => chassisFromEffects({}));
   const [slotTotal, setSlotTotal] = useState(CFG.SLOT_TOTAL);
+  const [slots, setSlots] = useState<ChassisSlot[]>([]);
   const [authRequired, setAuthRequired] = useState(false);
 
   const load = useCallback(async () => {
@@ -78,6 +82,7 @@ export function InventoryProvider({
     setChassis(data.chassis);
     setSlotTotal(data.slotTotal);
     setEquipmentSlotTotal(data.equipmentSlotTotal);
+    setSlots(data.slots ?? []);
   }, [game]);
 
   const didLoadRef = useRef(false);
@@ -92,13 +97,26 @@ export function InventoryProvider({
     [catalog],
   );
 
+  // Games on the chassis_slots model (mining) report real slots, not an
+  // equipped_quantity column (see db/021_migrate_mining_proxy.sql — that
+  // column is zeroed for mining items now). Count filled slots directly
+  // when slots come back non-empty; fall back to the old inventory-based
+  // count for a game that hasn't moved onto the slot model yet (refine).
   let equippedChassisTotal = 0;
   let equippedEquipmentTotal = 0;
-  for (const row of inventory) {
-    if (row.equipped_quantity <= 0) continue;
-    if (catByKey.get(row.item_key)?.category === EQUIPMENT_CATEGORY)
-      equippedEquipmentTotal += row.equipped_quantity;
-    else equippedChassisTotal += row.equipped_quantity;
+  if (slots.length > 0) {
+    for (const slot of slots) {
+      if (!slot.installed_item_id) continue;
+      if (slot.slot_type === "carriage") equippedEquipmentTotal++;
+      else equippedChassisTotal++;
+    }
+  } else {
+    for (const row of inventory) {
+      if (row.equipped_quantity <= 0) continue;
+      if (catByKey.get(row.item_key)?.category === EQUIPMENT_CATEGORY)
+        equippedEquipmentTotal += row.equipped_quantity;
+      else equippedChassisTotal += row.equipped_quantity;
+    }
   }
 
   return (
@@ -116,6 +134,8 @@ export function InventoryProvider({
         setChassis,
         slotTotal,
         setSlotTotal,
+        slots,
+        setSlots,
         authRequired,
         setAuthRequired,
         load,

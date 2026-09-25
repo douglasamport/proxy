@@ -68,6 +68,7 @@ type CurrentRunPayload =
       survey: SurveyTier;
       report: SurveyReport | null;
       balance: string;
+      energy: number;
       dims: FieldDims;
     }
   | { phase: "active"; runId: string; view: PublicRunView; balance: string };
@@ -100,6 +101,7 @@ export default function MiningPage() {
     H: CFG.BLOCK_H,
   });
   const [balance, setBalance] = useState<string | null>(null);
+  const [energy, setEnergy] = useState(0);
   const [pendingSurveyTier, setPendingSurveyTier] = useState<
     "basic" | "full" | null
   >(null);
@@ -122,6 +124,7 @@ export default function MiningPage() {
       runId: string;
       balance: string;
       dims: FieldDims;
+      energy: number;
     }>("/api/runs/field", {
       game: "mining",
       ...(seedOverride !== undefined ? { seed: seedOverride } : {}),
@@ -133,6 +136,7 @@ export default function MiningPage() {
     setAuthRequired(false);
     setRunId(r.data.runId);
     setBalance(r.data.balance);
+    setEnergy(r.data.energy);
     setDims(r.data.dims);
     setSurvey("none");
     setSurveyReport(null);
@@ -169,6 +173,7 @@ export default function MiningPage() {
       setView(null);
       setSurvey(r.data.survey);
       setSurveyReport(r.data.report);
+      setEnergy(r.data.energy);
       setDims(r.data.dims);
     }
   }, []);
@@ -213,9 +218,15 @@ export default function MiningPage() {
       claim,
     });
     if (!r.ok) {
-      setLastMsg("Could not launch — try again.");
+      setLastMsg(
+        r.status === 402
+          ? "Not enough energy for that claim size."
+          : "Could not launch — try again.",
+      );
       return;
     }
+    setEnergy((e) => Math.max(0, e - claim));
+    router.refresh(); // energy spent — refresh the header's server-rendered figure
     setView(r.data);
     setPhase("run");
     setLastMsg("");
@@ -425,6 +436,7 @@ export default function MiningPage() {
               survey={survey}
               report={surveyReport}
               balance={balance}
+              energy={energy}
               runId={runId}
               dims={dims}
               onClaimChange={setClaim}

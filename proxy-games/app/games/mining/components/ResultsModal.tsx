@@ -169,7 +169,6 @@ export function ResultsModal({
           <CostLine name="Fuel" amount={you.fuelCost} />
           <CostLine name="Repair" amount={you.repair} />
           <CostLine name="Mobilisation fee" amount={you.launch} />
-          <CostLine name="Claim" amount={you.claimCost} />
         </div>
 
         <div
@@ -221,7 +220,6 @@ export function ResultsModal({
               fmt={(v) => v.toFixed(2)}
             />
             <Row name="Gross revenue" a={you.revenue} b={ai.revenue} />
-            <Row name="Claim cost" a={you.claimCost} b={ai.claimCost} invert />
             <Row name="Total cost" a={you.cost} b={ai.cost} invert />
             <Row
               name="Cost per unit"

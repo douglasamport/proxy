@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentPlayer } from "@/lib/auth";
 import { assignNewField } from "@/lib/mining-run-store";
 import { loadUnlockedOreTypes, loadOreData } from "@/lib/mining-inventory";
+import { getOrCreateCharacter } from "@/lib/characters";
+import { getEnergy } from "@/lib/energy";
 import { fieldDims } from "@/lib/mining-engine";
 
 // POST { game, seed? } -> { runId, balance }
@@ -35,11 +37,14 @@ export async function POST(req: NextRequest) {
       ? requestedSeed
       : Math.floor(Math.random() * 9000) + 1000;
 
-  const [{ runId, balance }, unlockedOreTypes, oreData] = await Promise.all([
-    assignNewField(player.id, game, seed),
-    loadUnlockedOreTypes(player.id),
-    loadOreData(),
-  ]);
+  const characterId = await getOrCreateCharacter(player.id, "Pilot");
+  const [{ runId, balance }, unlockedOreTypes, oreData, energy] =
+    await Promise.all([
+      assignNewField(player.id, game, seed),
+      loadUnlockedOreTypes(player.id),
+      loadOreData(),
+      getEnergy(characterId),
+    ]);
   const dims = fieldDims(unlockedOreTypes, oreData);
-  return NextResponse.json({ runId, balance, dims });
+  return NextResponse.json({ runId, balance, dims, energy: energy.current });
 }
