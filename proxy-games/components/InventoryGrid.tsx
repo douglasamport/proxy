@@ -48,7 +48,7 @@ export function InventoryGrid({ items }: { items: OwnedItem[] }) {
         onChange={setFilter}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+      <div className="flex flex-col gap-6">
         {shown.map((item) => {
           const isExpansion = item.category === "expansion";
           // Only the one-time unlock item, not the whole 'equipment'
