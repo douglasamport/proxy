@@ -26,3 +26,35 @@ export async function getOrCreateCharacter(
   `;
   return created.id;
 }
+
+export interface Character {
+  id: string;
+  name: string;
+  setup_complete: boolean;
+  created_at: string;
+}
+
+// Read-only lookup — unlike getOrCreateCharacter this never inserts.
+export async function getCharacter(playerId: string): Promise<Character | null> {
+  const [row] = await sql`
+    select id, name, setup_complete, created_at
+    from characters where player_id = ${playerId}
+  `;
+  return (row as Character) ?? null;
+}
+
+// Finishes character creation: names the (auto-created) character and
+// flips setup_complete. No-op if already set up, so a double-submit can't
+// rename an existing character.
+export async function completeCharacterSetup(
+  playerId: string,
+  name: string,
+): Promise<boolean> {
+  await getOrCreateCharacter(playerId, name);
+  const rows = await sql`
+    update characters set name = ${name}, setup_complete = true
+    where player_id = ${playerId} and not setup_complete
+    returning id
+  `;
+  return rows.length > 0;
+}

@@ -32,11 +32,13 @@ import {
   creditOre,
 } from "./refine-inventory";
 import type { OreOption } from "./refine-inventory";
+import { resolveSiteId } from "./sites";
 
 export interface BatchRow {
   id: string;
   player_id: string;
   game: string;
+  site_id: string;
   seed: number;
   phase: "fitting" | "active";
   loadout: RefineRig | null;
@@ -52,10 +54,11 @@ function deserializeState(raw: unknown): BatchState {
 export async function loadFittingBatch(
   playerId: string,
 ): Promise<BatchRow | null> {
+  const siteId = await resolveSiteId(GAME);
   const [row] = await sql`
-    select id, player_id, game, seed, phase, loadout, claim, state, updated_at
+    select id, player_id, game, site_id, seed, phase, loadout, claim, state, updated_at
     from in_progress_runs
-    where player_id = ${playerId} and game = ${GAME} and phase = 'fitting'
+    where player_id = ${playerId} and site_id = ${siteId} and phase = 'fitting'
   `;
   return (row as BatchRow) ?? null;
 }
@@ -64,10 +67,11 @@ export async function loadActiveBatch(
   id: string,
   playerId: string,
 ): Promise<{ row: BatchRow; state: BatchState } | null> {
+  const siteId = await resolveSiteId(GAME);
   const [row] = await sql`
-    select id, player_id, game, seed, phase, loadout, claim, state, updated_at
+    select id, player_id, game, site_id, seed, phase, loadout, claim, state, updated_at
     from in_progress_runs
-    where id = ${id} and player_id = ${playerId} and game = ${GAME} and phase = 'active'
+    where id = ${id} and player_id = ${playerId} and site_id = ${siteId} and phase = 'active'
   `;
   if (!row) return null;
   return {
@@ -102,12 +106,13 @@ export async function startSizing(
   playerId: string,
   seed: number,
 ): Promise<{ batchId: string; balance: string; oreOptions: OreOption[] }> {
+  const siteId = await resolveSiteId(GAME);
   await settleAbandonedBatches(playerId);
-  await sql`delete from in_progress_runs where player_id = ${playerId} and game = ${GAME} and phase = 'fitting'`;
+  await sql`delete from in_progress_runs where player_id = ${playerId} and site_id = ${siteId} and phase = 'fitting'`;
 
   const [row] = await sql`
-    insert into in_progress_runs (player_id, game, seed, phase)
-    values (${playerId}, ${GAME}, ${seed}, 'fitting')
+    insert into in_progress_runs (player_id, game, site_id, seed, phase)
+    values (${playerId}, ${GAME}, ${siteId}, ${seed}, 'fitting')
     returning id
   `;
   const [{ balance }] =
@@ -287,9 +292,9 @@ export async function settleBatch(
   const runId = randomUUID();
   const statements = [
     sql`
-      insert into runs (id, player_id, game, seed, config, status, units, grade, net, move_log)
+      insert into runs (id, player_id, game, site_id, seed, config, status, units, grade, net, move_log)
       values (
-        ${runId}, ${row.player_id}, ${row.game}, ${state.seed},
+        ${runId}, ${row.player_id}, ${row.game}, ${row.site_id}, ${state.seed},
         ${JSON.stringify({ rig: row.loadout, bidUnits: state.bidUnits, oreType: state.oreType })},
         ${state.status}, ${state.bankedUnits}, ${meanQuality}, ${netValue},
         ${JSON.stringify({
@@ -333,10 +338,11 @@ export async function settleBatch(
 // walkable-away-from indefinitely (see startSizing() above, which calls
 // this before opening a new one).
 export async function settleAbandonedBatches(playerId: string): Promise<void> {
+  const siteId = await resolveSiteId(GAME);
   const rows = await sql`
-    select id, player_id, game, seed, phase, loadout, claim, state, updated_at
+    select id, player_id, game, site_id, seed, phase, loadout, claim, state, updated_at
     from in_progress_runs
-    where player_id = ${playerId} and game = ${GAME} and phase = 'active'
+    where player_id = ${playerId} and site_id = ${siteId} and phase = 'active'
       and state->>'status' <> 'active'
   `;
   for (const row of rows as BatchRow[]) {

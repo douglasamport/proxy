@@ -4,6 +4,10 @@ import Link from "next/link";
 import { ATOMS, SURFACE } from "@/lib/mining-theme";
 
 type GameHeaderProps = {
+  /** The site name (e.g. "Extraction", "Refining") — was hardcoded to
+   * "Extraction" for every site until the site rebuild gave each one its
+   * own header (see app/site/[siteId]/layout.tsx). */
+  title: string;
   section: string;
   /** Small mono readouts, e.g. balance, slot counts. */
   stats?: { label: string; value: string }[];
@@ -12,14 +16,14 @@ type GameHeaderProps = {
   children?: React.ReactNode;
 };
 
-// One header shell for every mining screen (Build, Store, the run page) —
+// One header shell for every site screen (Build, Store, the run page) —
 // previously each page hand-rolled its own `.mining-root header` markup.
 // Same brand mark, same stat-readout style, same nav-link chrome everywhere.
-export function GameHeader({ section, stats = [], links = [], children }: GameHeaderProps) {
+export function GameHeader({ title, section, stats = [], links = [], children }: GameHeaderProps) {
   return (
     <header className={`flex flex-wrap items-center gap-4 border-b ${ATOMS.borderInset} ${ATOMS.bgRock} px-5 py-3`}>
       <div className={`font-mono text-xs font-bold uppercase tracking-[.14em] ${ATOMS.textPrimary}`}>
-        Extraction <span className={ATOMS.textTeal}>/ {section}</span>
+        {title} <span className={ATOMS.textTeal}>/ {section}</span>
       </div>
 
       {stats.map((s) => (

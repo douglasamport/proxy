@@ -1,6 +1,6 @@
 import { CFG } from "@/lib/mining-engine";
 import { GAME, PALETTE, ATOMS, SURFACE } from "@/lib/mining-theme";
-import { Swatch, KeyRow } from "@/app/games/mining/components/Swatch";
+import { Swatch, KeyRow } from "./Swatch";
 
 // The reference panel — how a run works, plus the full terrain/hazard/grade
 // key. Split out from FittingPanel so it can take the wide half of the

@@ -5,6 +5,7 @@ import { startSizing, loadActiveBatch } from "@/lib/refine-batch-store";
 import { loadOreOptions, GAME } from "@/lib/refine-inventory";
 import { getOrCreateCharacter } from "@/lib/characters";
 import { getEnergy } from "@/lib/energy";
+import { resolveSiteId } from "@/lib/sites";
 
 // POST {} -> the player's current in-progress refine batch, resumed as-is
 // if one exists (sizing or active) — a fresh sizing row is only opened when
@@ -19,9 +20,10 @@ export async function POST(_req: NextRequest) {
 
   const characterId = await getOrCreateCharacter(player.id, "Pilot");
 
+  const siteId = await resolveSiteId(GAME);
   const [row] = await sql`
     select id, phase from in_progress_runs
-    where player_id = ${player.id} and game = ${GAME}
+    where player_id = ${player.id} and site_id = ${siteId}
     order by created_at desc limit 1
   `;
 

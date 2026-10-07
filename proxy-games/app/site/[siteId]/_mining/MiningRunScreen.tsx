@@ -86,7 +86,7 @@ async function postJSON<T>(
   return { ok: true, data: await res.json() };
 }
 
-export default function MiningPage() {
+export function MiningRunScreen() {
   const router = useRouter();
   const [runId, setRunId] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);

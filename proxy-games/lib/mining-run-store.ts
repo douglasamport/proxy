@@ -24,6 +24,7 @@ import type {
 
 import type { OreTypeKey, OreData } from "./mining-inventory";
 import { loadOreData } from "./mining-inventory";
+import { resolveSiteId } from "./sites";
 
 // Server-side row for an in-progress run. `state` is the full authoritative
 // RunState (only present once phase === 'active') — this never leaves the
@@ -32,6 +33,7 @@ export interface RunRow {
   id: string;
   player_id: string;
   game: string;
+  site_id: string;
   seed: number;
   phase: "fitting" | "active";
   loadout: { item_key: string; quantity: number }[] | null;
@@ -88,7 +90,7 @@ export async function loadFittingRun(
   playerId: string,
 ): Promise<RunRow | null> {
   const [row] = await sql`
-    select id, player_id, game, seed, phase, loadout, claim, survey, state
+    select id, player_id, game, site_id, seed, phase, loadout, claim, survey, state
     from in_progress_runs
     where id = ${id} and player_id = ${playerId} and phase = 'fitting'
   `;
@@ -100,7 +102,7 @@ export async function loadActiveRun(
   playerId: string,
 ): Promise<{ row: RunRow; state: RunState } | null> {
   const [row] = await sql`
-    select id, player_id, game, seed, phase, loadout, claim, survey, state
+    select id, player_id, game, site_id, seed, phase, loadout, claim, survey, state
     from in_progress_runs
     where id = ${id} and player_id = ${playerId} and phase = 'active'
   `;
@@ -297,9 +299,9 @@ export async function settleRun(
   const runId = randomUUID();
   const statements = [
     sql`
-      insert into runs (id, player_id, game, seed, config, status, units, grade, net, move_log)
+      insert into runs (id, player_id, game, site_id, seed, config, status, units, grade, net, move_log)
       values (
-        ${runId}, ${row.player_id}, ${row.game}, ${state.seed},
+        ${runId}, ${row.player_id}, ${row.game}, ${row.site_id}, ${state.seed},
         ${JSON.stringify({ loadout: row.loadout, claim: state.energyStart, survey: state.survey, settleChoice: choice })},
         ${state.status}, ${you.units}, ${you.grade}, ${you.net},
         ${JSON.stringify(state.log)}
@@ -325,16 +327,16 @@ export async function settleRun(
     const costOnly = -you.cost;
     statements.push(
       sql`
-        insert into balance_transactions (player_id, game, reason, delta, run_id)
-        values (${row.player_id}, ${row.game}, 'run_cost', ${costOnly}, ${runId})
+        insert into balance_transactions (player_id, game, site_id, reason, delta, run_id)
+        values (${row.player_id}, ${row.game}, ${row.site_id}, 'run_cost', ${costOnly}, ${runId})
       `,
       sql`update players set balance = balance + ${costOnly} where id = ${row.player_id}`,
     );
   } else {
     statements.push(
       sql`
-        insert into balance_transactions (player_id, game, reason, delta, run_id)
-        values (${row.player_id}, ${row.game}, 'run_net', ${you.net}, ${runId})
+        insert into balance_transactions (player_id, game, site_id, reason, delta, run_id)
+        values (${row.player_id}, ${row.game}, ${row.site_id}, 'run_net', ${you.net}, ${runId})
       `,
       sql`update players set balance = balance + ${you.net} where id = ${row.player_id}`,
     );
@@ -358,10 +360,11 @@ export async function settleAbandonedRuns(
   playerId: string,
   game: string,
 ): Promise<void> {
+  const siteId = await resolveSiteId(game);
   const rows = await sql`
-    select id, player_id, game, seed, phase, loadout, claim, survey, state
+    select id, player_id, game, site_id, seed, phase, loadout, claim, survey, state
     from in_progress_runs
-    where player_id = ${playerId} and game = ${game} and phase = 'active'
+    where player_id = ${playerId} and site_id = ${siteId} and phase = 'active'
       and state->>'status' <> 'active'
   `;
 
@@ -382,12 +385,13 @@ export async function assignNewField(
   game: string,
   seed: number,
 ): Promise<{ runId: string; balance: string }> {
+  const siteId = await resolveSiteId(game);
   await settleAbandonedRuns(playerId, game);
-  await sql`delete from in_progress_runs where player_id = ${playerId} and game = ${game} and phase = 'fitting'`;
+  await sql`delete from in_progress_runs where player_id = ${playerId} and site_id = ${siteId} and phase = 'fitting'`;
 
   const [row] = await sql`
-    insert into in_progress_runs (player_id, game, seed, phase)
-    values (${playerId}, ${game}, ${seed}, 'fitting')
+    insert into in_progress_runs (player_id, game, site_id, seed, phase)
+    values (${playerId}, ${game}, ${siteId}, ${seed}, 'fitting')
     returning id
   `;
 
@@ -423,6 +427,7 @@ export async function purchaseSurvey(
   `;
   if (!deducted) return { kind: "insufficient_funds" };
 
+  const siteId = await resolveSiteId(game);
   const results = await sql.transaction([
     sql`
       update in_progress_runs set survey = ${tier}, updated_at = now()
@@ -430,8 +435,8 @@ export async function purchaseSurvey(
       returning id
     `,
     sql`
-      insert into balance_transactions (player_id, game, reason, delta)
-      values (${playerId}, ${game}, 'survey_purchase', ${-cost})
+      insert into balance_transactions (player_id, game, site_id, reason, delta)
+      values (${playerId}, ${game}, ${siteId}, 'survey_purchase', ${-cost})
     `,
   ]);
 

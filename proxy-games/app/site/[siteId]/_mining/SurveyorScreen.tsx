@@ -9,7 +9,7 @@ const SURVEYOR_CATEGORIES = new Set(["license", "ore"]);
 // store (see build-spec-ore-progression.md Stage 5/6 follow-up). Licences
 // aren't sellable (see db/011_sell_prices.sql), so their cards just never
 // show a Sell button; ore is both buyable and sellable here.
-export default function SurveyorPage() {
+export function SurveyorScreen() {
   const categoryFilter = useCallback(
     (category: string) => SURVEYOR_CATEGORIES.has(category),
     [],

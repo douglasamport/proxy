@@ -11,6 +11,7 @@ import { getOrCreateCharacter } from "@/lib/characters";
 import { getEnergy } from "@/lib/energy";
 import { fieldDims, surveyReport } from "@/lib/mining-engine";
 import type { SurveyTier } from "@/lib/mining-engine";
+import { resolveSiteId } from "@/lib/sites";
 
 // POST { game } -> the player's current in-progress run for this game,
 // resumed as-is if one exists (fitting or active) — a fresh field is only
@@ -31,9 +32,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing game" }, { status: 400 });
   }
 
+  const siteId = await resolveSiteId(game);
   const [row] = await sql`
     select id, phase, seed, survey from in_progress_runs
-    where player_id = ${player.id} and game = ${game}
+    where player_id = ${player.id} and site_id = ${siteId}
     order by created_at desc limit 1
   `;
 

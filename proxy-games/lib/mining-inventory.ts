@@ -14,7 +14,7 @@ import type { ChassisSlot } from "./proxies";
 
 export interface CatalogItem {
   item_key: string;
-  game: string;
+  item_class: string;
   category: string;
   label: string;
   description: string | null;
@@ -38,7 +38,7 @@ export interface OreTypeMeta {
 
 export interface OreCatalogRow {
   item_key: string;
-  game: string;
+  item_class: string;
   category: string;
   label: string;
   description: string | null;
@@ -59,33 +59,40 @@ export interface InventoryRow {
   equipped_quantity: number;
 }
 
-export async function loadCatalog(game: string): Promise<CatalogItem[]> {
+// `classes` filters by item_class ('mining', 'refine', ...) — one, several,
+// or omitted for the whole catalog (e.g. the inventory page, which just
+// needs a lookup map of every item).
+export async function loadCatalog(
+  classes?: string | string[],
+): Promise<CatalogItem[]> {
+  const list = classes === undefined ? null : [classes].flat();
   const rows = await sql`
-    select item_key, game, category, label, description, cost, effects, active, image_url, sellable, sell_value
+    select item_key, item_class, category, label, description, cost, effects, active, image_url, sellable, sell_value
     from item_catalog
-    where game = ${game} and active = true
+    where active = true and (${list}::text[] is null or item_class = any(${list}))
     order by category, cost
   `;
   return rows as CatalogItem[];
 }
 
-// Scoped to `game`, not just `player_id` — player_inventory has no game
-// column of its own (only item_catalog does), and a player owns/equips
-// items across every game from the same shared table. Without this join,
-// a game's inventory read silently includes every other game's rows too.
+// player_inventory has no class column of its own (only item_catalog
+// does), so filtering by class joins through the catalog. Omit `classes`
+// for everything the player owns across all classes.
 // `equipped_quantity` is always 0 for mining rows now (see
 // db/021_migrate_mining_proxy.sql) — chassis_slots is the source of truth
 // for what's installed; this column only still means something for games
 // (refine) that haven't moved onto the slot model yet.
 export async function loadInventory(
   playerId: string,
-  game: string,
+  classes?: string | string[],
 ): Promise<InventoryRow[]> {
+  const list = classes === undefined ? null : [classes].flat();
   const rows = await sql`
     select pi.item_key, pi.owned_quantity, pi.equipped_quantity
     from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and ic.game = ${game}
+    where pi.player_id = ${playerId}
+      and (${list}::text[] is null or ic.item_class = any(${list}))
   `;
   return rows as InventoryRow[];
 }
@@ -106,7 +113,7 @@ export async function purchaseItem(
   quantity: number,
 ): Promise<PurchaseItemResult> {
   const [item] =
-    await sql`select cost from item_catalog where item_key = ${itemKey} and game = ${game} and active = true`;
+    await sql`select cost from item_catalog where item_key = ${itemKey} and active = true`;
   if (!item) return { kind: "not_found" };
 
   const totalCost = Number(item.cost) * quantity;
@@ -171,7 +178,7 @@ export async function sellItem(
            coalesce(pi.equipped_quantity, 0) as equipped_quantity
     from item_catalog ic
     left join player_inventory pi on pi.item_key = ic.item_key and pi.player_id = ${playerId}
-    where ic.item_key = ${itemKey} and ic.game = ${game} and ic.active = true
+    where ic.item_key = ${itemKey} and ic.active = true
   `;
   if (!row) return { kind: "not_found" };
   if (!row.sellable || row.sell_value == null) return { kind: "not_sellable" };
@@ -364,7 +371,7 @@ export async function installInSlot(
 
   const [item] = await sql`
     select category from item_catalog
-    where item_key = ${itemKey} and game = ${MINING_GAME} and active = true
+    where item_key = ${itemKey} and active = true
   `;
   if (!item || !categoryFitsSlot(item.category, slot.slot_type)) {
     return "wrong_slot_type";
@@ -418,9 +425,6 @@ export async function purchaseChassisExpansion(
   playerId: string,
   game: string,
 ): Promise<PurchaseItemResult> {
-  const [item] =
-    await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and game = ${game} and active = true`;
-  if (!item) return { kind: "not_found" };
   // This always expands the MINING chassis (resolveMiningProxy is hardcoded
   // to it) — genuinely mining-only for now, per the ore-progression build
   // spec's scoping. A refine/arena equivalent needs its own resolver before
@@ -428,6 +432,10 @@ export async function purchaseChassisExpansion(
   // silently expand the wrong game's chassis for a purchase logged under a
   // different game's ledger.
   if (game !== MINING_GAME) return { kind: "not_found" };
+
+  const [item] =
+    await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and active = true`;
+  if (!item) return { kind: "not_found" };
 
   const { proxyId } = await resolveMiningProxy(playerId);
   const standardCount = await countSlots(proxyId, "standard");
@@ -472,11 +480,12 @@ export async function purchaseEquipmentSlotUnlock(
   playerId: string,
   game: string,
 ): Promise<PurchaseEquipmentSlotResult> {
-  const [item] =
-    await sql`select cost from item_catalog where item_key = ${EQUIPMENT_SLOT_KEY} and game = ${game} and active = true`;
-  if (!item) return { kind: "not_found" };
   // Mining-only for now — see the matching guard in purchaseChassisExpansion().
   if (game !== MINING_GAME) return { kind: "not_found" };
+
+  const [item] =
+    await sql`select cost from item_catalog where item_key = ${EQUIPMENT_SLOT_KEY} and active = true`;
+  if (!item) return { kind: "not_found" };
   const cost = Number(item.cost);
 
   const { proxyId } = await resolveMiningProxy(playerId);

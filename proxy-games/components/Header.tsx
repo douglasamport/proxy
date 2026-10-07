@@ -21,7 +21,7 @@ function formatBalance(balance: string | undefined) {
 // router.refresh() after anything that spends either so this stays
 // current right after a launch, same pattern balance already used.
 export default async function Header() {
-  const player = await currentPlayer();
+  const [player] = await Promise.all([currentPlayer()]);
   const energy = player
     ? await getEnergy(await getOrCreateCharacter(player.id, "Pilot"))
     : null;
@@ -45,33 +45,6 @@ export default async function Header() {
               Sign in
             </Link>
           )}
-        </div>
-        <nav className="nav-right">
-          <Link href="/games">Games</Link>
-        </nav>
-      </div>
-      <div className="user-bar">
-        <span className="user-name">
-          {player ? (player.display_name ?? player.email) : "Guest"}
-        </span>
-        <div className="user-bar-right">
-          <Link href="/games/refine" className="user-link">
-            Refine
-          </Link>
-          <Link href="/games/mining" className="user-link">
-            Extraction
-          </Link>
-          <Link href="/inventory" className="user-link">
-            Inventory
-          </Link>
-          {energy && (
-            <span className="user-energy" title={`${Math.floor(energy.cap)} max`}>
-              ⚡ {Math.floor(energy.current)} / {Math.floor(energy.cap)}
-            </span>
-          )}
-          <span className="user-balance">
-            ${formatBalance(player?.balance)}
-          </span>
         </div>
       </div>
     </header>

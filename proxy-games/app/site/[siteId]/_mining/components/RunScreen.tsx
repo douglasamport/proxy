@@ -11,8 +11,8 @@ import { ATOMS, GAME, PALETTE, SURFACE, oreColor } from "@/lib/mining-theme";
 // RunField below). Scoped locally to that component's own .mining-root
 // wrapper, not applied to the rest of this now-Tailwind page.
 import "../mining.css";
-import { Gauge } from "@/app/games/mining/components/Gauge";
-import { Swatch, KeyRow } from "@/app/games/mining/components/Swatch";
+import { Gauge } from "./Gauge";
+import { Swatch, KeyRow } from "./Swatch";
 
 const ARROWS: Record<string, string> = {
   E: "→",

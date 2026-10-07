@@ -11,6 +11,7 @@ import { rigFromEffects, PART_CATEGORIES } from "./refine-engine";
 import type { RefineRig, StatKey, PartCategory } from "./refine-engine";
 import { loadOreData, loadUnlockedOreTypes } from "./mining-inventory";
 import type { OreTypeKey } from "./mining-inventory";
+import { resolveSiteId } from "./sites";
 
 export { PART_CATEGORIES };
 export type { PartCategory };
@@ -105,11 +106,12 @@ export async function grantRefineStarterKit(playerId: string): Promise<void> {
 export async function computeRefineEffects(
   playerId: string,
 ): Promise<Partial<Record<StatKey, number>>> {
+  const siteId = await resolveSiteId(GAME);
   const rows = await sql`
     select ic.effects, pi.equipped_quantity
     from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and ic.game = ${GAME} and pi.equipped_quantity > 0
+    where pi.player_id = ${playerId} and ic.site_id = ${siteId} and pi.equipped_quantity > 0
       and ic.category = any(${PART_CATEGORIES})
   `;
 
@@ -225,11 +227,12 @@ export async function setActivePart(
   category: PartCategory,
   itemKey: string,
 ): Promise<SetActivePartResult> {
+  const siteId = await resolveSiteId(GAME);
   const [row] = await sql`
     select pi.owned_quantity from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
     where pi.player_id = ${playerId} and pi.item_key = ${itemKey}
-      and ic.game = ${GAME} and ic.category = ${category}
+      and ic.site_id = ${siteId} and ic.category = ${category}
   `;
   if (!row || row.owned_quantity < 1) return "not_owned";
 
@@ -237,7 +240,7 @@ export async function setActivePart(
     sql`
       update player_inventory set equipped_quantity = 0, updated_at = now()
       where player_id = ${playerId} and equipped_quantity > 0 and item_key in (
-        select item_key from item_catalog where game = ${GAME} and category = ${category}
+        select item_key from item_catalog where site_id = ${siteId} and category = ${category}
       )
     `,
     sql`

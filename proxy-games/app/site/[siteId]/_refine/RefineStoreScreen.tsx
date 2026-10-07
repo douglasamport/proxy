@@ -21,7 +21,7 @@ const REFINE_STORE_CATEGORIES = new Set([
   "decanter_unlock",
 ]);
 
-export default function RefineStorePage() {
+export function RefineStoreScreen() {
   const categoryFilter = useCallback(
     (category: string) => REFINE_STORE_CATEGORIES.has(category),
     [],

@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { currentPlayer } from "@/lib/auth";
-import { loadCatalog, loadInventory, loadMiningSlots } from "@/lib/mining-inventory";
+import {
+  loadCatalog,
+  loadInventory,
+  loadMiningSlots,
+} from "@/lib/mining-inventory";
 import { InventoryGrid } from "../../components/InventoryGrid";
 import type { OwnedItem } from "../../components/InventoryGrid";
 
@@ -30,8 +34,8 @@ export default async function InventoryPage() {
   }
 
   const [catalog, inventory, slots] = await Promise.all([
-    loadCatalog("mining"),
-    loadInventory(player.id, "mining"),
+    loadCatalog(),
+    loadInventory(player.id),
     loadMiningSlots(player.id),
   ]);
   const byKey = new Map(catalog.map((c) => [c.item_key, c]));
@@ -69,36 +73,11 @@ export default async function InventoryPage() {
     <div className="mx-auto max-w-4xl px-6 py-12">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Inventory</h1>
-        <div className="flex gap-3 text-sm">
-          <Link
-            href="/games/mining/build"
-            className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500"
-          >
-            Build
-          </Link>
-          <Link
-            href="/games/mining/store"
-            className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500"
-          >
-            Mechanic
-          </Link>
-          <Link
-            href="/games/mining/surveyor"
-            className="rounded border border-slate-800 px-3 py-1.5 hover:border-cyan-500"
-          >
-            Surveyor
-          </Link>
-        </div>
+        <div className="flex gap-3 text-sm"></div>
       </div>
 
       {items.length === 0 ? (
-        <p className="text-slate-400">
-          You don&rsquo;t own anything yet. Visit the{" "}
-          <Link href="/games/mining/store" className="text-cyan-400 underline">
-            mechanic
-          </Link>{" "}
-          to get started.
-        </p>
+        <p className="text-slate-400">You&rsquo;re inventory is empty.</p>
       ) : (
         <InventoryGrid items={items} />
       )}

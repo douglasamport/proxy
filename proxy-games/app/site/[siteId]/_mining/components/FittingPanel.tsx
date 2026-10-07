@@ -1,8 +1,9 @@
 "use client";
 
+import { useParams } from "next/navigation";
 import { CFG, fuelMult } from "@/lib/mining-engine";
 import type { Chassis, SurveyReport, SurveyTier } from "@/lib/mining-engine";
-import { StatsPanel } from "@/app/games/mining/components/StatsPanel";
+import { StatsPanel } from "./StatsPanel";
 import { ACCENTS, ATOMS, SURFACE, type Accent } from "@/lib/mining-theme";
 
 // Presets used to double as one-click Alloc pickers back when the chassis
@@ -99,6 +100,8 @@ export function FittingPanel({
   onRequestSurvey,
   onLaunch,
 }: FittingPanelProps) {
+  const { siteId } = useParams<{ siteId: string }>();
+  const buildHref = `/site/${siteId}/build`;
   const funds = balance ? Number(balance) : 0;
 
   const mult = fuelMult(ch);
@@ -213,13 +216,13 @@ export function FittingPanel({
         <StatsPanel title="Chassis" rows={chassisRows} />
         <p className={`mt-2 text-[11px] leading-snug ${ATOMS.textDim}`}>
           Whatever&rsquo;s equipped on your{" "}
-          <a href="/games/mining/build" className={ATOMS.textTeal}>
+          <a href={buildHref} className={ATOMS.textTeal}>
             build screen
           </a>{" "}
           right now. Fit changes there carry into your next launch.
         </p>
         <a
-          href="/games/mining/build"
+          href={buildHref}
           className={`mt-2 block rounded border ${ATOMS.borderLine} px-3 py-1.5 text-center font-mono text-[10px] uppercase tracking-[.12em] ${ATOMS.textDim} transition ${SURFACE.navLinkHover}`}
         >
           Edit loadout

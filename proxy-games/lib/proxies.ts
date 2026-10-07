@@ -6,6 +6,7 @@
 import { sql } from "@/db/client";
 import { categoryFitsSlot, CARRIAGE_CATEGORIES } from "./slot-categories";
 import type { SlotType } from "./slot-categories";
+import { resolveSiteId } from "./sites";
 
 export type { SlotType };
 export { categoryFitsSlot, CARRIAGE_CATEGORIES };
@@ -27,9 +28,15 @@ export async function getOrCreateActiveProxy(
   proxyName: string,
   standardSlots: number,
 ): Promise<string> {
+  // site_id is the real scoping now (see db/025_site_id_backfill.sql);
+  // `game` is still written below too — it's the on-conflict target and
+  // stays populated until every reader has moved off it — but reads are
+  // by site_id.
+  const siteId = await resolveSiteId(game);
+
   const [existing] = await sql`
     select proxy_id from active_proxy_selection
-    where character_id = ${characterId} and game = ${game}
+    where character_id = ${characterId} and site_id = ${siteId}
   `;
   if (existing) return existing.proxy_id;
 
@@ -49,9 +56,9 @@ export async function getOrCreateActiveProxy(
   // loser's freshly-inserted proxy+slots are simply left unused rather
   // than causing an unhandled unique-violation error.
   const [selection] = await sql`
-    insert into active_proxy_selection (character_id, game, proxy_id)
-    values (${characterId}, ${game}, ${proxy.id})
-    on conflict (character_id, game) do update set updated_at = now()
+    insert into active_proxy_selection (character_id, game, site_id, proxy_id)
+    values (${characterId}, ${game}, ${siteId}, ${proxy.id})
+    on conflict (character_id, game) do update set updated_at = now(), site_id = excluded.site_id
     returning proxy_id
   `;
   return selection.proxy_id;

@@ -107,7 +107,7 @@ const ACTION_ERR_LABEL: Record<string, string> = {
   "no furnace equipped": "No furnace equipped.",
 };
 
-export default function RefinePage() {
+export function RefineBatchScreen() {
   const router = useRouter();
   const [batchId, setBatchId] = useState<string | null>(null);
   const [phase, setPhase] = useState<"fitting" | "active">("fitting");

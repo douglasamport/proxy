@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { useInventory } from "@/components/game-shell/InventoryContext";
 import { ATOMS, SURFACE, ACCENTS, accentForCategory } from "@/lib/mining-theme";
 import type { CatalogItem } from "@/lib/mining-inventory";
@@ -28,7 +29,9 @@ function effectsText(effects: Partial<Record<string, number>>): string {
 // radio-style picker rather than a reuse of EquipCard/the Build layout.
 // Buying happens on the Store; this only decides which owned part is
 // installed. See setActivePart() in lib/refine-inventory.ts.
-export default function RigPage() {
+export function RigScreen() {
+  const { siteId } = useParams<{ siteId: string }>();
+  const storeHref = `/site/${siteId}/store`;
   const { catalog, inventory, load } = useInventory();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -103,7 +106,7 @@ export default function RigPage() {
                   <p className={`text-sm ${ATOMS.textDim}`}>
                     You don&rsquo;t own a {CATEGORY_LABEL[cat].toLowerCase()}{" "}
                     yet — visit the{" "}
-                    <a href="/games/refine/store" className={ATOMS.textTeal}>
+                    <a href={storeHref} className={ATOMS.textTeal}>
                       store
                     </a>
                     .

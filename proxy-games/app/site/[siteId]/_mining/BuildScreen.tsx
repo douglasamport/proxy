@@ -10,9 +10,10 @@ import { categoryIcon, FullBuildIcon } from "@/components/game-shell/icons";
 import { GameHeader } from "@/components/game-shell/GameHeader";
 import { FilterBar } from "@/components/game-shell/FilterBar";
 import { EquipCard } from "@/components/EquipCard";
-import { StatsPanel } from "@/app/games/mining/components/StatsPanel";
+import { StatsPanel } from "./components/StatsPanel";
 import { accentForCategory, ATOMS } from "@/lib/mining-theme";
-import { useInventory } from "../layout";
+import { useInventory } from "@/components/game-shell/InventoryContext";
+import { useParams } from "next/navigation";
 
 // The dedicated chassis build screen. Separate from the per-run fitting
 // flow on purpose: a loadout is now a pile of *owned* items (you might own
@@ -54,7 +55,9 @@ function imgSrc(item: CatalogItem): string {
   );
 }
 
-export default function BuildPage() {
+export function BuildScreen() {
+  const { siteId } = useParams<{ siteId: string }>();
+  const storeHref = `/site/${siteId}/store`;
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -299,7 +302,7 @@ export default function BuildPage() {
                   <>
                     You don&rsquo;t own anything in this category yet — visit
                     the{" "}
-                    <a href="/games/mining/store" className={ATOMS.textTeal}>
+                    <a href={storeHref} className={ATOMS.textTeal}>
                       mechanic
                     </a>
                     .

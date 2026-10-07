@@ -25,7 +25,7 @@ const STORE_CATEGORIES = new Set([
 // Ore trading (and mineral licences) moved to the dedicated Surveyor screen
 // — ore still shows up here (nothing about the general catalog listing
 // changes), but buying it is disabled with a pointer over there instead.
-export default function MechanicPage() {
+export function MechanicScreen() {
   // const categoryFilter = useCallback(() => true, []);
 
   const categoryFilter = useCallback(
