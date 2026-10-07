@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getSite } from "@/lib/sites";
-import { MechanicScreen } from "../_mining/MechanicScreen";
+import { MiningStoreScreen } from "../_mining/MiningStoreScreen";
 import { RefineStoreScreen } from "../_refine/RefineStoreScreen";
 
 // The one route name both activity_types share — both are already thin
@@ -15,7 +15,7 @@ export default async function SiteStorePage({
   const site = await getSite(siteId);
   if (!site) notFound();
 
-  if (site.activity_type === "extraction") return <MechanicScreen />;
+  if (site.activity_type === "extraction") return <MiningStoreScreen />;
   if (site.activity_type === "refining") return <RefineStoreScreen />;
   notFound();
 }

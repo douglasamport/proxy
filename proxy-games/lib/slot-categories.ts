@@ -18,6 +18,7 @@ export const NON_EQUIPPABLE_CATEGORIES = new Set([
   "license",
   "expansion",
   "equipment_slot",
+  "chassis",
 ]);
 
 export function categoryFitsSlot(category: string, slotType: SlotType): boolean {

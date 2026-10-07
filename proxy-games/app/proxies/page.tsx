@@ -1,19 +1,23 @@
 import Link from "next/link";
 import { currentPlayer } from "@/lib/auth";
+import { getOrCreateCharacter } from "@/lib/characters";
+import { listSites } from "@/lib/sites";
 import {
-  computeChassis,
+  computeChassisForProxy,
   loadCatalog,
   loadInventory,
-  resolveMiningProxy,
 } from "@/lib/mining-inventory";
-import { loadProxyName, loadSlots, categoryFitsSlot } from "@/lib/proxies";
+import { categoryFitsSlot, listProxies, loadSlots } from "@/lib/proxies";
+import { scrapValue } from "@/lib/mechanic";
 import { ProxyManager } from "@/components/ProxyManager";
 
-// Proxy management — lives outside the sites, like /inventory, since a
-// chassis belongs to the character and is shared by every extraction site.
-// Mining only for now: refining still has its own rig (see RigScreen) that
-// hasn't moved onto proxies/chassis_slots. Server component for the
-// auth-gated data; the slot picker itself is client-side (ProxyManager).
+// Proxy management — lives outside the sites, like /inventory, since your
+// chassis belong to the character, not to any one site. Lists every chassis
+// you own; each can be renamed, assigned to an activity, loaded with gear
+// from your shared inventory, or scrapped. Buying new chassis and adding
+// slots happens at the Mechanic site. Mining only for now: refining still
+// uses its own rig (see RigScreen). Server component for the auth-gated
+// data; the interactive parts are client-side (ProxyManager).
 export default async function ProxiesPage() {
   const player = await currentPlayer({ touch: false });
   if (!player) {
@@ -33,14 +37,30 @@ export default async function ProxiesPage() {
     );
   }
 
-  const { proxyId } = await resolveMiningProxy(player.id);
-  const [name, slots, catalog, inventory, chassis] = await Promise.all([
-    loadProxyName(proxyId),
-    loadSlots(proxyId),
+  const characterId = await getOrCreateCharacter(player.id, "Pilot");
+  const [proxies, catalog, inventory, sites] = await Promise.all([
+    listProxies(characterId),
     loadCatalog("extraction"),
     loadInventory(player.id, "extraction"),
-    computeChassis(player.id),
+    listSites(),
   ]);
+
+  const chassis = await Promise.all(
+    proxies.map(async (p) => {
+      const [slots, stats] = await Promise.all([
+        loadSlots(p.id),
+        computeChassisForProxy(p.id),
+      ]);
+      return {
+        id: p.id,
+        name: p.name,
+        assigned: p.assigned,
+        slots,
+        stats,
+        scrapValue: scrapValue(p.standard + p.carriage),
+      };
+    }),
+  );
 
   // Only items that can go in some slot — ore, licences and capacity
   // unlocks are never equippable.
@@ -62,14 +82,16 @@ export default async function ProxiesPage() {
     inventory.map((r) => [r.item_key, r.owned_quantity]),
   );
 
+  const mechanicSiteId =
+    sites.find((s) => s.activity_type === "mechanic")?.id ?? null;
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <ProxyManager
-        proxyName={name ?? "Mining Chassis"}
-        slots={slots}
+        chassis={chassis}
         items={items}
         owned={owned}
-        chassis={chassis}
+        mechanicSiteId={mechanicSiteId}
       />
     </div>
   );

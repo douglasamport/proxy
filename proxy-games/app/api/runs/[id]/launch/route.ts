@@ -7,6 +7,7 @@ import {
   loadoutSnapshot,
   loadUnlockedOreTypes,
   loadOreData,
+  resolveMiningProxy,
 } from "@/lib/mining-inventory";
 import { getOrCreateCharacter } from "@/lib/characters";
 import { refundEnergy, spendEnergy } from "@/lib/energy";
@@ -49,6 +50,18 @@ export async function POST(
     return NextResponse.json({ error: "run not found" }, { status: 404 });
   }
 
+  // Nothing is spent until we know there's something to launch: a chassis
+  // assigned to extraction, with at least some fuel capacity (an empty
+  // chassis would strand on its first move).
+  const { proxyId } = await resolveMiningProxy(player.id);
+  if (!proxyId) {
+    return NextResponse.json({ error: "no chassis assigned" }, { status: 409 });
+  }
+  const chassis = await computeChassis(player.id);
+  if (chassis.fuelCap <= 0) {
+    return NextResponse.json({ error: "no fuel tank installed" }, { status: 422 });
+  }
+
   const characterId = await getOrCreateCharacter(player.id, "Pilot");
   const spend = await spendEnergy(characterId, claim);
   if (!spend.ok) {
@@ -58,8 +71,7 @@ export async function POST(
     );
   }
 
-  const [chassis, loadout, unlockedOreTypes, oreData] = await Promise.all([
-    computeChassis(player.id),
+  const [loadout, unlockedOreTypes, oreData] = await Promise.all([
     loadoutSnapshot(player.id),
     loadUnlockedOreTypes(player.id),
     loadOreData(),

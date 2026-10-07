@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { currentPlayer } from '@/lib/auth';
 import { clearSlot, installInSlot } from '@/lib/mining-inventory';
+import { isUuid } from '@/lib/ids';
 
 // POST { slot_id, item_key } -> { ok: true } | error
 // item_key omitted/null clears the slot. One slot, one action — replaces
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
   const slotId = body.slot_id;
   const itemKey = body.item_key;
 
-  if (typeof slotId !== 'string' || !slotId) {
+  if (!isUuid(slotId)) {
     return NextResponse.json({ error: 'invalid request' }, { status: 400 });
   }
 

@@ -28,6 +28,7 @@ const SECTIONS: Record<string, { path: string; label: string }[]> = {
     { path: "rig", label: "rig" },
     { path: "store", label: "store" },
   ],
+  mechanic: [{ path: "", label: "mechanic" }],
 };
 
 const AUTH_GATE_COPY: Record<string, string> = {
@@ -35,6 +36,8 @@ const AUTH_GATE_COPY: Record<string, string> = {
     "Live run state now lives server-side against your account, so playing (not just saving) needs you signed in.",
   refining:
     "Live batch state lives server-side against your account, so refining (not just browsing the store) needs you signed in.",
+  mechanic:
+    "Your chassis belong to your account, so you need to be signed in to visit the Mechanic.",
 };
 
 export function SiteShell({
@@ -108,7 +111,9 @@ function SiteChrome({
     surveyor: [balanceStat],
   };
   const stats =
-    activityType === "refining" ? [balanceStat] : (extractionStats[currentPath] ?? []);
+    activityType === "refining" || activityType === "mechanic"
+      ? [balanceStat]
+      : (extractionStats[currentPath] ?? []);
 
   if (authRequired) {
     return (

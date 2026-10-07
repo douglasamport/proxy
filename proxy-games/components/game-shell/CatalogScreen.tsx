@@ -15,8 +15,6 @@ import { useInventory } from "./InventoryContext";
 // Not imported as a value from lib/mining-inventory.ts — that module pulls
 // in the DB client, which has no business in a client bundle. Just string
 // keys, duplicated here the same way 'mining'/'refine' (the game slug) is.
-const EXPANSION_KEY = "chassis_expansion";
-const EQUIPMENT_SLOT_KEY = "equipment_slot_unlock";
 // Mirrors FLAT_SELL_PRICE_CATEGORIES in lib/mining-inventory.ts — these
 // categories' sell_value is an absolute credit price, not a ratio of the
 // row's own cost (which is 0 for both: no buy side, only ever produced).
@@ -77,15 +75,12 @@ export function CatalogScreen({
   } | null>(null);
 
   // Same idea, for buying — set by an ItemCard's Acquire click, cleared on
-  // cancel or once the purchase completes. `isEquipmentSlot` routes confirm
-  // to buyEquipmentSlot() (a dedicated one-shot endpoint with no quantity
-  // of its own) instead of the ordinary quantity-aware buy().
+  // cancel or once the purchase completes.
   const [buyTarget, setBuyTarget] = useState<{
     item_key: string;
     label: string;
     cost: number;
     maxQuantity: number;
-    isEquipmentSlot: boolean;
   } | null>(null);
 
   const { catalog, inventory, slots, balance, load } = useInventory();
@@ -172,55 +167,6 @@ export function CatalogScreen({
     router.refresh();
   }
 
-  // Separate from buy(): price isn't flat here, it doubles with each one
-  // already owned, so it hits its own endpoint (see /api/store/expand).
-  // Mining-only — refine's catalog never has an 'expansion' row, so this
-  // branch is simply never reached for 'refining'.
-  async function buyExpansion() {
-    setBusyKey(EXPANSION_KEY);
-    setError("");
-    const res = await fetch("/api/store/expand", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activityType }),
-    });
-    setBusyKey(null);
-    if (!res.ok) {
-      setError(
-        res.status === 402
-          ? "Not enough balance for that."
-          : "Could not complete purchase — try again.",
-      );
-      return;
-    }
-    await load();
-    router.refresh();
-  }
-
-  // One-time only, unlike the expansion above — see /api/store/equipment-slot.
-  // Mining-only, same reasoning as buyExpansion() above.
-  async function buyEquipmentSlot() {
-    setBusyKey(EQUIPMENT_SLOT_KEY);
-    setError("");
-    const res = await fetch("/api/store/equipment-slot", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activityType }),
-    });
-    setBusyKey(null);
-    if (!res.ok) {
-      setError(
-        res.status === 402
-          ? "Not enough balance for that."
-          : "Could not complete purchase — try again.",
-      );
-      return;
-    }
-    setBuyTarget(null);
-    await load();
-    router.refresh();
-  }
-
   return (
     <div className={`min-h-screen ${ATOMS.bgVoid} catalogue-container`}>
       <main className="mx-auto max-w-6xl px-6 py-8">
@@ -242,15 +188,6 @@ export function CatalogScreen({
           {shown.map((item) => {
             const owned = ownedByKey.get(item.item_key) ?? 0;
             const equipped = equippedByKey.get(item.item_key) ?? 0;
-            const isExpansion = item.category === "expansion";
-            // Only the literal one-time unlock item — NOT the whole
-            // 'equipment' category. Ore siphon and line scanner live in
-            // 'equipment' too, but they're ordinary repeat-buy consumables
-            // (see lib/mining-inventory.ts's EQUIPMENT_SLOT_KEY vs
-            // EQUIPMENT_CATEGORY); conflating the two here used to disable
-            // the buy button — and route the purchase to the wrong
-            // endpoint — after the first ore siphon/line scanner purchase.
-            const isEquipmentSlotUnlock = item.category === "equipment_slot";
             // Per-mineral licences (see db/013_mineral_licences.sql, renamed
             // in db/014) — same one-time-gate display as the equipment bay
             // unlock above, just one row per mineral instead of a single row.
@@ -261,11 +198,8 @@ export function CatalogScreen({
             // equipment bay), so it's excluded from that onBuy branch.
             const isOneTimeUnlock = item.category === "decanter_unlock";
             const alreadyOwned =
-              (isEquipmentSlotUnlock || isLicense || isOneTimeUnlock) &&
-              owned >= 1;
-            const cost = isExpansion
-              ? Number(item.cost) * 2 ** owned
-              : Number(item.cost);
+              (isLicense || isOneTimeUnlock) && owned >= 1;
+            const cost = Number(item.cost);
 
             const sellableQuantity = owned - equipped;
             const sellValue =
@@ -305,39 +239,31 @@ export function CatalogScreen({
                 }
                 sellBusy={sellBusyKey === item.item_key}
                 statusValue={
-                  isExpansion
-                    ? String(owned)
-                    : isEquipmentSlotUnlock || isLicense || isOneTimeUnlock
-                      ? alreadyOwned
-                        ? "✓"
-                        : "—"
-                      : String(owned)
+                  isLicense || isOneTimeUnlock
+                    ? alreadyOwned
+                      ? "✓"
+                      : "—"
+                    : String(owned)
                 }
                 statusCaption={
-                  isExpansion
-                    ? "slots added"
-                    : isEquipmentSlotUnlock || isLicense || isOneTimeUnlock
-                      ? alreadyOwned
-                        ? "unlocked"
-                        : "locked"
-                      : "owned"
+                  isLicense || isOneTimeUnlock
+                    ? alreadyOwned
+                      ? "unlocked"
+                      : "locked"
+                    : "owned"
                 }
                 onBuy={() =>
-                  isExpansion
-                    ? buyExpansion()
-                    : setBuyTarget({
-                        item_key: item.item_key,
-                        label: item.label,
-                        cost,
-                        // One-time unlocks can only ever be bought once —
-                        // the modal still opens (per "every item except
-                        // expansion slots"), it just has nothing to pick.
-                        maxQuantity:
-                          isEquipmentSlotUnlock || isLicense || isOneTimeUnlock
-                            ? 1
-                            : Math.max(1, Math.floor(funds / cost)),
-                        isEquipmentSlot: isEquipmentSlotUnlock,
-                      })
+                  setBuyTarget({
+                    item_key: item.item_key,
+                    label: item.label,
+                    cost,
+                    // One-time unlocks can only ever be bought once — the
+                    // modal still opens, it just has nothing to pick.
+                    maxQuantity:
+                      isLicense || isOneTimeUnlock
+                        ? 1
+                        : Math.max(1, Math.floor(funds / cost)),
+                  })
                 }
               />
             );
@@ -362,11 +288,7 @@ export function CatalogScreen({
           cost={buyTarget.cost}
           maxQuantity={buyTarget.maxQuantity}
           busy={busyKey === buyTarget.item_key}
-          onConfirm={(quantity) =>
-            buyTarget.isEquipmentSlot
-              ? buyEquipmentSlot()
-              : buy(buyTarget.item_key, quantity)
-          }
+          onConfirm={(quantity) => buy(buyTarget.item_key, quantity)}
           onCancel={() => setBuyTarget(null)}
         />
       )}

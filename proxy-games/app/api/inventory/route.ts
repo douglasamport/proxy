@@ -46,9 +46,10 @@ export async function GET(req: NextRequest) {
   ]);
 
   if (activityType === 'extraction') {
+    const { proxyId } = await resolveMiningProxy(player.id);
     const [chassis, slots] = await Promise.all([
       computeChassis(player.id),
-      resolveMiningProxy(player.id).then(({ proxyId }) => loadSlots(proxyId)),
+      proxyId ? loadSlots(proxyId) : Promise.resolve([]),
     ]);
     const slotTotal = slots.filter((s) => s.slot_type === 'standard').length;
     const equipmentSlotTotal = slots.filter((s) => s.slot_type === 'carriage').length;
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
       .map((s) => s.installed_item_id as string);
 
     return NextResponse.json({
-      catalog, inventory, balance: player.balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable, slots,
+      catalog, inventory, balance: player.balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable, slots, proxyId,
     });
   }
 

@@ -5,7 +5,7 @@ import { getEnergy } from "@/lib/energy";
 import { listSites } from "@/lib/sites";
 import SidebarItem from "./SidebarItem";
 
-const LINKABLE = new Set(["extraction", "refining"]);
+const LINKABLE = new Set(["extraction", "refining", "mechanic"]);
 
 // Master sidebar, rendered from the root layout so it's on every page.
 // Hidden until the player is signed in AND has finished character setup —

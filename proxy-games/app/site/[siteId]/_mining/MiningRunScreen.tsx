@@ -221,7 +221,11 @@ export function MiningRunScreen({ siteId }: { siteId: string }) {
       setLastMsg(
         r.status === 402
           ? "Not enough energy for that claim size."
-          : "Could not launch — try again.",
+          : r.status === 409
+            ? "No chassis assigned to mining — set one up on the Proxies page."
+            : r.status === 422
+              ? "No fuel tank installed — fit a fuel cell on the Proxies page."
+              : "Could not launch — try again.",
       );
       return;
     }

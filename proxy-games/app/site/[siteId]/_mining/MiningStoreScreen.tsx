@@ -6,13 +6,12 @@ import { CatalogScreen } from "@/components/game-shell/CatalogScreen";
 
 const ORE_CATEGORY = "ore";
 
+// Chassis, slots/bays and field equipment are sold at the Mechanic now
+// (see the 'mechanic' site), so they no longer appear here.
 const STORE_CATEGORIES = new Set([
   "armour",
   "cargo",
   "drive",
-  "equipment",
-  "equipment_slot",
-  "expansion",
   "fuel",
   "sensor",
   "steer",
@@ -25,7 +24,7 @@ const STORE_CATEGORIES = new Set([
 // Ore trading (and mineral licences) moved to the dedicated Surveyor screen
 // — ore still shows up here (nothing about the general catalog listing
 // changes), but buying it is disabled with a pointer over there instead.
-export function MechanicScreen() {
+export function MiningStoreScreen() {
   // const categoryFilter = useCallback(() => true, []);
 
   const categoryFilter = useCallback(

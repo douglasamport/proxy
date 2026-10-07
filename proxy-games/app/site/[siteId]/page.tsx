@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getSite } from "@/lib/sites";
 import { MiningRunScreen } from "./_mining/MiningRunScreen";
 import { RefineBatchScreen } from "./_refine/RefineBatchScreen";
+import { MechanicScreen } from "./_mechanic/MechanicScreen";
 
 // The site's primary screen — which engine renders is determined by
 // activity_type, not hardcoded per route (see the Smashies rebuild
@@ -21,5 +22,7 @@ export default async function SitePage({
     return <MiningRunScreen siteId={siteId} />;
   if (site.activity_type === "refining")
     return <RefineBatchScreen siteId={siteId} />;
+  if (site.activity_type === "mechanic")
+    return <MechanicScreen siteId={siteId} />;
   notFound();
 }

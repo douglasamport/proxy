@@ -6,7 +6,9 @@ import {
   categoryFitsSlot,
   countInstalledElsewhere,
   countSlots,
-  getOrCreateActiveProxy,
+  assignProxy,
+  createChassis,
+  getAssignedProxy,
   installItem as installIntoChassisSlot,
   loadSlots,
 } from "./proxies";
@@ -113,6 +115,7 @@ export async function purchaseItem(
   playerId: string,
   itemKey: string,
   quantity: number,
+  siteId?: string,
 ): Promise<PurchaseItemResult> {
   const [item] =
     await sql`select cost from item_catalog where item_key = ${itemKey} and active = true`;
@@ -134,8 +137,8 @@ export async function purchaseItem(
       do update set owned_quantity = player_inventory.owned_quantity + excluded.owned_quantity, updated_at = now()
     `,
     sql`
-      insert into balance_transactions (player_id, reason, delta)
-      values (${playerId}, 'store_purchase', ${-totalCost})
+      insert into balance_transactions (player_id, site_id, reason, delta)
+      values (${playerId}, ${siteId ?? null}, 'store_purchase', ${-totalCost})
     `,
   ]);
 
@@ -173,6 +176,7 @@ export async function sellItem(
   activityType: string,
   itemKey: string,
   quantity: number,
+  siteId?: string,
 ): Promise<SellItemResult> {
   const [row] = await sql`
     select ic.cost, ic.sellable, ic.sell_value, ic.category,
@@ -207,8 +211,8 @@ export async function sellItem(
       where player_id = ${playerId} and item_key = ${itemKey}
     `,
     sql`
-      insert into balance_transactions (player_id, reason, delta)
-      values (${playerId}, 'item_sale', ${proceeds})
+      insert into balance_transactions (player_id, site_id, reason, delta)
+      values (${playerId}, ${siteId ?? null}, 'item_sale', ${proceeds})
     `,
     sql`update players set balance = balance + ${proceeds} where id = ${playerId}`,
   ]);
@@ -326,22 +330,23 @@ const MINING_PROXY_NAME = "Mining Chassis";
 // once and reuse the result across several of the functions below instead
 // of each one independently re-resolving the same character+proxy — see
 // the efficiency note on this file's functions.
+//
+// READ-ONLY: `proxyId` is the chassis the character has assigned to
+// extraction, or null when they have none (a character who scrapped their
+// last-but-one chassis, say). Chassis are never created implicitly — see
+// createChassis() in lib/proxies.ts — so every caller treats null as "no
+// chassis": empty slots, baseline stats, nothing to launch with.
 export async function resolveMiningProxy(
   playerId: string,
-): Promise<{ characterId: string; proxyId: string }> {
+): Promise<{ characterId: string; proxyId: string | null }> {
   const characterId = await getOrCreateCharacter(playerId, "Pilot");
-  const proxyId = await getOrCreateActiveProxy(
-    characterId,
-    MINING_ACTIVITY,
-    MINING_PROXY_NAME,
-    CFG.SLOT_TOTAL,
-  );
+  const proxyId = await getAssignedProxy(characterId, MINING_ACTIVITY);
   return { characterId, proxyId };
 }
 
 export async function loadMiningSlots(playerId: string): Promise<ChassisSlot[]> {
   const { proxyId } = await resolveMiningProxy(playerId);
-  return loadSlots(proxyId);
+  return proxyId ? loadSlots(proxyId) : [];
 }
 
 export type InstallResult =
@@ -362,11 +367,15 @@ export async function installInSlot(
   slotId: string,
   itemKey: string,
 ): Promise<InstallResult> {
-  const { characterId, proxyId } = await resolveMiningProxy(playerId);
+  const characterId = await getOrCreateCharacter(playerId, "Pilot");
 
+  // Any chassis the character owns — not just the one assigned to a
+  // particular activity — so loadouts can be built for a spare.
   const [slot] = await sql`
-    select id, slot_type, installed_item_id from chassis_slots
-    where id = ${slotId} and proxy_id = ${proxyId}
+    select cs.id, cs.slot_type, cs.installed_item_id
+    from chassis_slots cs
+    join proxies p on p.id = cs.proxy_id
+    where cs.id = ${slotId} and p.character_id = ${characterId}
   `;
   if (!slot) return "slot_not_found";
   if (slot.installed_item_id === itemKey) return "ok";
@@ -399,136 +408,25 @@ export async function clearSlot(
   playerId: string,
   slotId: string,
 ): Promise<InstallResult> {
-  const { proxyId } = await resolveMiningProxy(playerId);
-  const [slot] =
-    await sql`select id from chassis_slots where id = ${slotId} and proxy_id = ${proxyId}`;
+  const characterId = await getOrCreateCharacter(playerId, "Pilot");
+  const [slot] = await sql`
+    select cs.id from chassis_slots cs
+    join proxies p on p.id = cs.proxy_id
+    where cs.id = ${slotId} and p.character_id = ${characterId}
+  `;
   if (!slot) return "slot_not_found";
   await installIntoChassisSlot(slotId, null);
   return "ok";
 }
 
-// Not equippable like everything else — owning one used to permanently
-// raise slot capacity by 1. Now that expanding writes a real chassis_slots
-// row directly (see purchaseChassisExpansion below), this key only still
-// matters as the item_catalog row that prices the next expansion.
-export const EXPANSION_ITEM_KEY = "chassis_expansion";
-
 export async function getSlotTotal(playerId: string): Promise<number> {
   const { proxyId } = await resolveMiningProxy(playerId);
-  return countSlots(proxyId, "standard");
+  return proxyId ? countSlots(proxyId, "standard") : 0;
 }
-
-// Each expansion costs double the last one, based on how many standard
-// slots this specific proxy already has beyond the base CFG.SLOT_TOTAL —
-// per-proxy, not per-player, since a character can own more than one
-// chassis and each has its own slot count. +1 standard slot, empty, no
-// item attached.
-export async function purchaseChassisExpansion(
-  playerId: string,
-  activityType: string,
-): Promise<PurchaseItemResult> {
-  // This always expands the MINING chassis (resolveMiningProxy is hardcoded
-  // to it) — genuinely mining-only for now, per the ore-progression build
-  // spec's scoping. A refine/arena equivalent needs its own resolver before
-  // this can honor an arbitrary `activityType`; until then, refuse rather than
-  // silently expand the wrong game's chassis for a purchase logged under a
-  // different game's ledger.
-  if (activityType !== MINING_ACTIVITY) return { kind: "not_found" };
-
-  const [item] =
-    await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and active = true`;
-  if (!item) return { kind: "not_found" };
-
-  const { proxyId } = await resolveMiningProxy(playerId);
-  const standardCount = await countSlots(proxyId, "standard");
-  const level = Math.max(0, standardCount - CFG.SLOT_TOTAL);
-  const cost = Number(item.cost) * 2 ** level;
-
-  const [deducted] = await sql`
-    update players set balance = balance - ${cost}
-    where id = ${playerId} and balance >= ${cost}
-    returning balance
-  `;
-  if (!deducted) return { kind: "insufficient_funds" };
-
-  await sql.transaction([
-    sql`insert into chassis_slots (proxy_id, slot_type) values (${proxyId}, 'standard')`,
-    sql`
-      insert into balance_transactions (player_id, reason, delta)
-      values (${playerId}, 'chassis_expansion', ${-cost})
-    `,
-  ]);
-
-  return { kind: "ok", balance: deducted.balance };
-}
-
-// A single, very expensive slot for single-use field tools (ore siphon,
-// line scanner) — one carriage slot, period, not a repeatable doubling
-// purchase like chassis expansion. See purchaseEquipmentSlotUnlock().
-export const EQUIPMENT_SLOT_KEY = "equipment_slot_unlock";
 
 export async function getEquipmentSlotTotal(playerId: string): Promise<number> {
   const { proxyId } = await resolveMiningProxy(playerId);
-  return countSlots(proxyId, "carriage");
-}
-
-export type PurchaseEquipmentSlotResult =
-  | { kind: "ok"; balance: string }
-  | { kind: "insufficient_funds" }
-  | { kind: "not_found" }
-  | { kind: "already_owned" };
-
-export async function purchaseEquipmentSlotUnlock(
-  playerId: string,
-  activityType: string,
-): Promise<PurchaseEquipmentSlotResult> {
-  // Mining-only for now — see the matching guard in purchaseChassisExpansion().
-  if (activityType !== MINING_ACTIVITY) return { kind: "not_found" };
-
-  const [item] =
-    await sql`select cost from item_catalog where item_key = ${EQUIPMENT_SLOT_KEY} and active = true`;
-  if (!item) return { kind: "not_found" };
-  const cost = Number(item.cost);
-
-  const { proxyId } = await resolveMiningProxy(playerId);
-  const carriageCount = await countSlots(proxyId, "carriage");
-  if (carriageCount >= 1) return { kind: "already_owned" };
-
-  const [deducted] = await sql`
-    update players set balance = balance - ${cost}
-    where id = ${playerId} and balance >= ${cost}
-    returning balance
-  `;
-  if (!deducted) return { kind: "insufficient_funds" };
-
-  // Race-proof one-time gate: player_inventory's unique (player_id,
-  // item_key) constraint makes this insert a guaranteed no-op for a second
-  // concurrent purchase (double-click, two tabs) — the countSlots() read
-  // above can't rule that out on its own, since two requests can both see
-  // 0 carriage slots before either commits. This row's quantities are
-  // otherwise inert (same as chassis_expansion's vestigial player_
-  // inventory rows) — chassis_slots is still the real state; this insert
-  // exists purely as the atomic gate.
-  const [gate] = await sql`
-    insert into player_inventory (player_id, item_key, owned_quantity, equipped_quantity)
-    values (${playerId}, ${EQUIPMENT_SLOT_KEY}, 1, 0)
-    on conflict (player_id, item_key) do nothing
-    returning item_key
-  `;
-  if (!gate) {
-    await sql`update players set balance = balance + ${cost} where id = ${playerId}`;
-    return { kind: "already_owned" };
-  }
-
-  await sql.transaction([
-    sql`insert into chassis_slots (proxy_id, slot_type) values (${proxyId}, 'carriage')`,
-    sql`
-      insert into balance_transactions (player_id, reason, delta)
-      values (${playerId}, 'equipment_slot_unlock', ${-cost})
-    `,
-  ]);
-
-  return { kind: "ok", balance: deducted.balance };
+  return proxyId ? countSlots(proxyId, "carriage") : 0;
 }
 
 // Whether the player currently has a usable one of this equipped — checked
@@ -540,6 +438,7 @@ export async function hasEquippedConsumable(
   itemKey: string,
 ): Promise<boolean> {
   const { proxyId } = await resolveMiningProxy(playerId);
+  if (!proxyId) return false;
   const rows = await sql`
     select 1 from chassis_slots
     where proxy_id = ${proxyId} and installed_item_id = ${itemKey}
@@ -556,6 +455,7 @@ export async function consumeEquippedItem(
   itemKey: string,
 ): Promise<void> {
   const { proxyId } = await resolveMiningProxy(playerId);
+  if (!proxyId) return;
   // A single conditional UPDATE instead of select-then-update: clears
   // whichever slot has this item RIGHT NOW, atomically, so there's no
   // window where a concurrent equip/unequip on that same slot (e.g. via
@@ -584,6 +484,7 @@ export async function loadEquipmentAvailable(
   playerId: string,
 ): Promise<string[]> {
   const { proxyId } = await resolveMiningProxy(playerId);
+  if (!proxyId) return [];
   const rows = await sql`
     select installed_item_id from chassis_slots
     where proxy_id = ${proxyId} and slot_type = 'carriage' and installed_item_id is not null
@@ -619,7 +520,22 @@ export async function grantStarterKit(playerId: string): Promise<void> {
   );
   await sql.transaction(writes);
 
-  const { proxyId } = await resolveMiningProxy(playerId);
+  // The one place a chassis is created for free: a brand-new player's
+  // single starter chassis, assigned to extraction, recorded on the player
+  // (players.starter_chassis_granted) so it can never be granted twice.
+  // Everywhere else a chassis comes from the Mechanic.
+  const [{ granted }] = await sql`
+    select starter_chassis_granted as granted from players where id = ${playerId}
+  `;
+  if (granted) return;
+  const characterId = await getOrCreateCharacter(playerId, "Pilot");
+  const proxyId = await createChassis(
+    characterId,
+    MINING_PROXY_NAME,
+    CFG.SLOT_TOTAL,
+  );
+  await assignProxy(characterId, MINING_ACTIVITY, proxyId);
+  await sql`update players set starter_chassis_granted = true where id = ${playerId}`;
   const slots = await loadSlots(proxyId);
   const emptyStandard = slots.filter(
     (s) => s.slot_type === "standard" && !s.installed_item_id,
@@ -670,18 +586,26 @@ export async function computeEffects(
   playerId: string,
 ): Promise<Partial<Record<StatKey, number>>> {
   const { proxyId } = await resolveMiningProxy(playerId);
+  return computeEffectsForProxy(proxyId);
+}
 
+// Same sum for one specific chassis (null = no chassis: baseline only).
+export async function computeEffectsForProxy(
+  proxyId: string | null,
+): Promise<Partial<Record<StatKey, number>>> {
   const [baselineRows, slotRows] = await Promise.all([
     sql`
       select item_key, effects from item_catalog
       where item_key in (${BASELINE_DRIVE}, ${BASELINE_STEER}, ${BASELINE_ARMOUR}, ${BASELINE_CARGO})
     `,
-    sql`
-      select ic.effects
-      from chassis_slots cs
-      join item_catalog ic on ic.item_key = cs.installed_item_id
-      where cs.proxy_id = ${proxyId} and cs.installed_item_id is not null
-    `,
+    proxyId
+      ? sql`
+          select ic.effects
+          from chassis_slots cs
+          join item_catalog ic on ic.item_key = cs.installed_item_id
+          where cs.proxy_id = ${proxyId} and cs.installed_item_id is not null
+        `
+      : Promise.resolve([] as Record<string, unknown>[]),
   ]);
 
   const effects: Partial<Record<StatKey, number>> = {};
@@ -712,12 +636,19 @@ export async function computeChassis(playerId: string): Promise<Chassis> {
   return chassisFromEffects(await computeEffects(playerId));
 }
 
+export async function computeChassisForProxy(
+  proxyId: string | null,
+): Promise<Chassis> {
+  return chassisFromEffects(await computeEffectsForProxy(proxyId));
+}
+
 // Snapshot of what's actually installed at launch time, for runs.config —
 // one row per occupied item_key, quantity = how many slots hold it.
 export async function loadoutSnapshot(
   playerId: string,
 ): Promise<{ item_key: string; quantity: number }[]> {
   const { proxyId } = await resolveMiningProxy(playerId);
+  if (!proxyId) return [];
   const rows = await sql`
     select installed_item_id as item_key, count(*)::int as quantity
     from chassis_slots

@@ -40,6 +40,8 @@ interface InventoryContextType {
   setSlotTotal: Dispatch<SetStateAction<number>>;
   slots: ChassisSlot[];
   setSlots: Dispatch<SetStateAction<ChassisSlot[]>>;
+  /** The active chassis these slots belong to (mining); null for activities not on the slot model. */
+  proxyId: string | null;
   load: () => Promise<void>;
   equippedChassisTotal: number;
   equippedEquipmentTotal: number;
@@ -66,6 +68,7 @@ export function InventoryProvider({
   const [chassis, setChassis] = useState<Chassis>(() => chassisFromEffects({}));
   const [slotTotal, setSlotTotal] = useState(CFG.SLOT_TOTAL);
   const [slots, setSlots] = useState<ChassisSlot[]>([]);
+  const [proxyId, setProxyId] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
 
   const load = useCallback(async () => {
@@ -83,6 +86,7 @@ export function InventoryProvider({
     setSlotTotal(data.slotTotal);
     setEquipmentSlotTotal(data.equipmentSlotTotal);
     setSlots(data.slots ?? []);
+    setProxyId(data.proxyId ?? null);
   }, [activityType]);
 
   const didLoadRef = useRef(false);
@@ -136,6 +140,7 @@ export function InventoryProvider({
         setSlotTotal,
         slots,
         setSlots,
+        proxyId,
         authRequired,
         setAuthRequired,
         load,
