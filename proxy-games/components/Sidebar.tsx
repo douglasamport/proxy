@@ -47,6 +47,7 @@ export default async function Sidebar() {
 
       <ul className="mb-5 space-y-1">
         <SidebarItem href="/inventory">Inventory</SidebarItem>
+        <SidebarItem href="/proxies">Proxies</SidebarItem>
       </ul>
 
       <div className="mb-2 text-[10px] uppercase tracking-widest text-slate-500">

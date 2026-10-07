@@ -2,7 +2,7 @@
 
 ## LAUNCH — target Friday (start inviting players)
 Building (must-haves before inviting anyone):
-- [ ] **Proxy management page** — see your proxies, which one is active for each activity, install/remove items in slots (today that only exists inside the mining Build screen). Include a clear state for an empty chassis.
+- [x] **Proxy management page** — built at `/proxies` (`app/proxies/page.tsx`, `components/ProxyManager.tsx`, Sidebar link), mining only; slot-by-slot picker, live stats, empty-chassis warning. **Needs a click-through.** Not yet: multiple proxies / switching the active one (the equip API only edits the active proxy), and a refine rig view.
 - [ ] **Splash page for signed-out visitors** — `Welcome` currently just redirects to `/login`. Needs a public landing page: what the game is, a sign-in / "request access" path. The copy already drafted in `public/copy.ts` (`welcomeHeader`, `welcomeMessage`, `whatThisIs`) is a starting point (it still mentions "the games"; update for the current shape).
 - [ ] **Real welcome message** on the signed-in homepage (replace the placeholder news in `components/Welcome.tsx`).
 - [ ] **Sort out Store and Surveyor** — extract into their own sites (details under Next up below).

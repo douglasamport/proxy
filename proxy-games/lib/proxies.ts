@@ -61,6 +61,11 @@ export async function getOrCreateActiveProxy(
   return selection.proxy_id;
 }
 
+export async function loadProxyName(proxyId: string): Promise<string | null> {
+  const [row] = await sql`select name from proxies where id = ${proxyId}`;
+  return (row?.name as string | undefined) ?? null;
+}
+
 export async function loadSlots(proxyId: string): Promise<ChassisSlot[]> {
   const rows = await sql`
     select id, slot_type, installed_item_id
