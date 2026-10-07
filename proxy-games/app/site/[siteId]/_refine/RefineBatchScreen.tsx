@@ -78,8 +78,7 @@ async function postJSON<T>(
   url: string,
   body?: unknown,
 ): Promise<
-  | { ok: true; data: T }
-  | { ok: false; status: number; error?: string }
+  { ok: true; data: T } | { ok: false; status: number; error?: string }
 > {
   const res = await fetch(url, {
     method: "POST",
@@ -107,7 +106,7 @@ const ACTION_ERR_LABEL: Record<string, string> = {
   "no furnace equipped": "No furnace equipped.",
 };
 
-export function RefineBatchScreen() {
+export function RefineBatchScreen({ siteId }: { siteId: string }) {
   const router = useRouter();
   const [batchId, setBatchId] = useState<string | null>(null);
   const [phase, setPhase] = useState<"fitting" | "active">("fitting");
@@ -127,7 +126,7 @@ export function RefineBatchScreen() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchOwnedFlags = useCallback(async () => {
-    const res = await fetch("/api/inventory?game=refine");
+    const res = await fetch("/api/inventory?activityType=refining");
     if (!res.ok) return;
     const data = await res.json();
     const rows = data.inventory as {
@@ -144,7 +143,7 @@ export function RefineBatchScreen() {
   }, []);
 
   const resume = useCallback(async () => {
-    const r = await postJSON<CurrentPayload>("/api/refine/current");
+    const r = await postJSON<CurrentPayload>("/api/refine/current", { siteId });
     if (!r.ok) return;
     setBatchId(r.data.batchId);
     setPhase(r.data.phase);
@@ -156,7 +155,7 @@ export function RefineBatchScreen() {
       setState(r.data.state);
       fetchOwnedFlags();
     }
-  }, [fetchOwnedFlags]);
+  }, [fetchOwnedFlags, siteId]);
 
   const didLoadRef = useRef(false);
   useEffect(() => {
@@ -315,7 +314,7 @@ export function RefineBatchScreen() {
   }
 
   async function playAgain() {
-    const r = await postJSON<FittingPayload>("/api/refine/new");
+    const r = await postJSON<FittingPayload>("/api/refine/new", { siteId });
     if (!r.ok) return;
     setBatchId(r.data.batchId);
     setOreOptions(r.data.oreOptions);

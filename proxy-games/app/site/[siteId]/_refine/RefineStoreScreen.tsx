@@ -27,5 +27,5 @@ export function RefineStoreScreen() {
     [],
   );
 
-  return <CatalogScreen game="refine" categoryFilter={categoryFilter} />;
+  return <CatalogScreen activityType="refining" categoryFilter={categoryFilter} />;
 }

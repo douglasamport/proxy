@@ -30,7 +30,10 @@ export async function POST(
     return NextResponse.json({ error: "batch not found" }, { status: 404 });
   }
   if (result.kind === "conflict") {
-    return NextResponse.json({ error: "conflicting request, retry" }, { status: 409 });
+    return NextResponse.json(
+      { error: "conflicting request, retry" },
+      { status: 409 },
+    );
   }
   return NextResponse.json({ state: result.state, err: result.err });
 }

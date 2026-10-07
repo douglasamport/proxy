@@ -41,7 +41,7 @@ export function MechanicScreen() {
 
   return (
     <CatalogScreen
-      game="mining"
+      activityType="extraction"
       categoryFilter={categoryFilter}
       buyDisabledReason={buyDisabledReason}
     />

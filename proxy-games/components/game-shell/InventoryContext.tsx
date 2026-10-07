@@ -1,11 +1,11 @@
 "use client";
 
 // Generic /api/inventory-backed context — extracted from what was
-// app/games/mining/layout.tsx's InventoryProvider so a second game (refine)
-// doesn't need its own copy of this fetch/state plumbing. GET
-// /api/inventory?game=... already takes `game` as a plain argument (see
-// app/api/inventory/route.ts), so this only needed a `game` prop, nothing
-// structural changed.
+// app/games/mining/layout.tsx's InventoryProvider so a second activity
+// (refining) doesn't need its own copy of this fetch/state plumbing. GET
+// /api/inventory?activityType=... takes the activity type as a plain
+// argument (see app/api/inventory/route.ts), so this only needs an
+// `activityType` prop.
 import {
   useState,
   useEffect,
@@ -53,10 +53,10 @@ export const InventoryContext = createContext<InventoryContextType | null>(
 // /api/inventory response doesn't populate them — refine's store screens
 // don't read those fields, they only use catalog/inventory/balance/load.
 export function InventoryProvider({
-  game,
+  activityType,
   children,
 }: {
-  game: string;
+  activityType: string;
   children: React.ReactNode;
 }) {
   const [equipmentSlotTotal, setEquipmentSlotTotal] = useState(0);
@@ -69,7 +69,7 @@ export function InventoryProvider({
   const [authRequired, setAuthRequired] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/inventory?game=${game}`);
+    const res = await fetch(`/api/inventory?activityType=${activityType}`);
     if (!res.ok) {
       if (res.status === 401) setAuthRequired(true);
       return;
@@ -83,7 +83,7 @@ export function InventoryProvider({
     setSlotTotal(data.slotTotal);
     setEquipmentSlotTotal(data.equipmentSlotTotal);
     setSlots(data.slots ?? []);
-  }, [game]);
+  }, [activityType]);
 
   const didLoadRef = useRef(false);
   useEffect(() => {

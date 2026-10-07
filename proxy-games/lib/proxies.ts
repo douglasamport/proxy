@@ -6,7 +6,6 @@
 import { sql } from "@/db/client";
 import { categoryFitsSlot, CARRIAGE_CATEGORIES } from "./slot-categories";
 import type { SlotType } from "./slot-categories";
-import { resolveSiteId } from "./sites";
 
 export type { SlotType };
 export { categoryFitsSlot, CARRIAGE_CATEGORIES };
@@ -17,26 +16,24 @@ export interface ChassisSlot {
   installed_item_id: string | null;
 }
 
-// The proxy a character currently has selected for `game` — created lazily
+// The proxy a character currently has selected for `activityType`
+// ('extraction', 'refining', 'arena', ...) — one row per character per
+// activity (unique(character_id, activity_type) on active_proxy_selection);
+// the same proxy may be selected for several activities. Shared across
+// every site of that activity type. Created lazily
 // (with `standardSlots` empty standard slots, 0 carriage) the first time a
 // character needs one, so a brand-new signup doesn't need its own
 // provisioning step beyond calling this. Existing players/games were
 // backfilled directly (db/021_migrate_mining_proxy.sql for mining).
 export async function getOrCreateActiveProxy(
   characterId: string,
-  game: string,
+  activityType: string,
   proxyName: string,
   standardSlots: number,
 ): Promise<string> {
-  // site_id is the real scoping now (see db/025_site_id_backfill.sql);
-  // `game` is still written below too — it's the on-conflict target and
-  // stays populated until every reader has moved off it — but reads are
-  // by site_id.
-  const siteId = await resolveSiteId(game);
-
   const [existing] = await sql`
     select proxy_id from active_proxy_selection
-    where character_id = ${characterId} and site_id = ${siteId}
+    where character_id = ${characterId} and activity_type = ${activityType}
   `;
   if (existing) return existing.proxy_id;
 
@@ -50,15 +47,15 @@ export async function getOrCreateActiveProxy(
     select ${proxy.id}, 'standard' from generate_series(1, ${standardSlots})
   `;
   // Race-proof against a concurrent call doing the same get-or-create for
-  // this character+game (db/021 added a unique(character_id, game)
+  // this character+activity (db/021 added a unique(character_id, activity_type)
   // constraint here) — on conflict, keep whichever row actually won and
   // return ITS proxy_id via RETURNING, not the one just built above. The
   // loser's freshly-inserted proxy+slots are simply left unused rather
   // than causing an unhandled unique-violation error.
   const [selection] = await sql`
-    insert into active_proxy_selection (character_id, game, site_id, proxy_id)
-    values (${characterId}, ${game}, ${siteId}, ${proxy.id})
-    on conflict (character_id, game) do update set updated_at = now(), site_id = excluded.site_id
+    insert into active_proxy_selection (character_id, activity_type, proxy_id)
+    values (${characterId}, ${activityType}, ${proxy.id})
+    on conflict (character_id, activity_type) do update set updated_at = now()
     returning proxy_id
   `;
   return selection.proxy_id;

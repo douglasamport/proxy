@@ -11,9 +11,8 @@ import { getOrCreateCharacter } from "@/lib/characters";
 import { getEnergy } from "@/lib/energy";
 import { fieldDims, surveyReport } from "@/lib/mining-engine";
 import type { SurveyTier } from "@/lib/mining-engine";
-import { resolveSiteId } from "@/lib/sites";
+import { getSite } from "@/lib/sites";
 
-// POST { game } -> the player's current in-progress run for this game,
 // resumed as-is if one exists (fitting or active) — a fresh field is only
 // generated when there truly isn't one yet. This is what page load and
 // navigation call; unlike POST /api/runs/field (the explicit "give me a
@@ -27,12 +26,16 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { game } = body;
-  if (typeof game !== "string" || !game) {
-    return NextResponse.json({ error: "missing game" }, { status: 400 });
+  const { siteId } = body;
+  if (typeof siteId !== "string" || !siteId) {
+    return NextResponse.json({ error: "missing siteId" }, { status: 400 });
   }
 
-  const siteId = await resolveSiteId(game);
+  const site = await getSite(siteId);
+  if (!site || site.activity_type !== "extraction") {
+    return NextResponse.json({ error: "Unknown site" }, { status: 404 });
+  }
+
   const [row] = await sql`
     select id, phase, seed, survey from in_progress_runs
     where player_id = ${player.id} and site_id = ${siteId}
@@ -45,7 +48,7 @@ export async function POST(req: NextRequest) {
     const seed = Math.floor(Math.random() * 9000) + 1000;
     const [{ runId, balance }, unlockedOreTypes, oreData, energy] =
       await Promise.all([
-        assignNewField(player.id, game, seed),
+        assignNewField(player.id, siteId, seed),
         loadUnlockedOreTypes(player.id),
         loadOreData(),
         getEnergy(characterId),
@@ -93,7 +96,7 @@ export async function POST(req: NextRequest) {
     const seed = Math.floor(Math.random() * 9000) + 1000;
     const [{ runId, balance }, unlockedOreTypes, oreData, energy] =
       await Promise.all([
-        assignNewField(player.id, game, seed),
+        assignNewField(player.id, siteId, seed),
         loadUnlockedOreTypes(player.id),
         loadOreData(),
         getEnergy(characterId),

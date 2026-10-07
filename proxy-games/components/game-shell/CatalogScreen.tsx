@@ -42,7 +42,7 @@ function effectsText(effects: Partial<Record<StatKey, number>>): string {
 // Shared shell for every catalog screen in the shell — mining's Mechanic
 // store, its mineral-licence/ore Surveyor, and refine's equipment store —
 // same load/buy/sell plumbing and card rendering, differing only in which
-// `game` they buy against and which categories they show. `game` drives
+// `activityType` they buy against and which categories they show. It drives
 // which /api/inventory rows load (via InventoryProvider, see
 // components/game-shell/InventoryContext.tsx) and which store endpoint a
 // purchase posts to. Chassis-expansion and equipment-slot-unlock are
@@ -51,13 +51,13 @@ function effectsText(effects: Partial<Record<StatKey, number>>): string {
 // 'expansion' or 'equipment_slot' row (refine, today) just never exercises
 // those branches.
 export interface CatalogScreenProps {
-  game: string;
+  activityType: string;
   categoryFilter: (category: string) => boolean;
   buyDisabledReason?: (item: CatalogItem) => string | undefined;
 }
 
 export function CatalogScreen({
-  game,
+  activityType,
   categoryFilter,
   buyDisabledReason,
 }: CatalogScreenProps) {
@@ -99,7 +99,7 @@ export function CatalogScreen({
   // slots for mining; refine hasn't moved to the slot model yet, so its
   // equipped_quantity column is still the real answer.
   const equippedByKey = new Map<string, number>();
-  if (game === "mining") {
+  if (activityType === "extraction") {
     for (const slot of slots) {
       if (!slot.installed_item_id) continue;
       equippedByKey.set(
@@ -134,7 +134,7 @@ export function CatalogScreen({
     const res = await fetch("/api/store/buy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game, item_key: itemKey, quantity }),
+      body: JSON.stringify({ activityType, item_key: itemKey, quantity }),
     });
     setBusyKey(null);
     if (!res.ok) {
@@ -156,7 +156,7 @@ export function CatalogScreen({
     const res = await fetch("/api/store/sell", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game, item_key: itemKey, quantity }),
+      body: JSON.stringify({ activityType, item_key: itemKey, quantity }),
     });
     setSellBusyKey(null);
     if (!res.ok) {
@@ -175,14 +175,14 @@ export function CatalogScreen({
   // Separate from buy(): price isn't flat here, it doubles with each one
   // already owned, so it hits its own endpoint (see /api/store/expand).
   // Mining-only — refine's catalog never has an 'expansion' row, so this
-  // branch is simply never reached for game='refine'.
+  // branch is simply never reached for 'refining'.
   async function buyExpansion() {
     setBusyKey(EXPANSION_KEY);
     setError("");
     const res = await fetch("/api/store/expand", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game }),
+      body: JSON.stringify({ activityType }),
     });
     setBusyKey(null);
     if (!res.ok) {
@@ -205,7 +205,7 @@ export function CatalogScreen({
     const res = await fetch("/api/store/equipment-slot", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game }),
+      body: JSON.stringify({ activityType }),
     });
     setBusyKey(null);
     if (!res.ok) {

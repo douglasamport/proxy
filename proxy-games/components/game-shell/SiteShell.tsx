@@ -12,7 +12,6 @@ import {
   useInventory,
 } from "@/components/game-shell/InventoryContext";
 import { ACCENTS, ATOMS } from "@/lib/mining-theme";
-import { ACTIVITY_TYPE_TO_GAME } from "@/lib/site-activity";
 import { useSelectedLayoutSegments } from "next/navigation";
 
 type NavLink = { href: string; label: string };
@@ -49,10 +48,8 @@ export function SiteShell({
   activityType: string;
   children: React.ReactNode;
 }) {
-  const game = ACTIVITY_TYPE_TO_GAME[activityType] ?? activityType;
-
   return (
-    <InventoryProvider game={game}>
+    <InventoryProvider activityType={activityType}>
       <SiteChrome siteId={siteId} siteName={siteName} activityType={activityType}>
         {children}
       </SiteChrome>

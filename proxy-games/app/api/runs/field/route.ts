@@ -5,9 +5,8 @@ import { loadUnlockedOreTypes, loadOreData } from "@/lib/mining-inventory";
 import { getOrCreateCharacter } from "@/lib/characters";
 import { getEnergy } from "@/lib/energy";
 import { fieldDims } from "@/lib/mining-engine";
+import { getSite } from "@/lib/sites";
 
-// POST { game, seed? } -> { runId, balance }
-//
 // Always starts a BRAND NEW field, discarding any unlaunched fitting run —
 // this is the explicit "I want a different field" action (dev reseed,
 // Refit, Play again), not what runs on a plain page load/navigation. See
@@ -26,10 +25,15 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { game, seed: requestedSeed } = body;
+  const { seed: requestedSeed, siteId } = body;
 
-  if (typeof game !== "string" || !game) {
-    return NextResponse.json({ error: "missing game" }, { status: 400 });
+  if (typeof siteId !== "string" || !siteId) {
+    return NextResponse.json({ error: "missing siteId" }, { status: 400 });
+  }
+
+  const site = await getSite(siteId);
+  if (!site || site.activity_type !== "extraction") {
+    return NextResponse.json({ error: "Unknown site" }, { status: 404 });
   }
 
   const seed =
@@ -40,7 +44,7 @@ export async function POST(req: NextRequest) {
   const characterId = await getOrCreateCharacter(player.id, "Pilot");
   const [{ runId, balance }, unlockedOreTypes, oreData, energy] =
     await Promise.all([
-      assignNewField(player.id, game, seed),
+      assignNewField(player.id, siteId, seed),
       loadUnlockedOreTypes(player.id),
       loadOreData(),
       getEnergy(characterId),

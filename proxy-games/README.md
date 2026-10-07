@@ -1,4 +1,4 @@
-# Scaffold — shared shell, auth, runs, leaderboard
+# Scaffold — shared shell, auth, runs
 
 Drop this into `/Users/bitterandesters/amport/proxy/proxy-mine`. Paths assume
 Next.js App Router with the `@/` alias pointed at the project root (default
@@ -22,7 +22,6 @@ app/
     auth/request/       POST { email } -> sends magic link
     auth/verify/         GET ?token=... -> sets session, redirects
     runs/                POST save a run (requires session) / GET own history
-    leaderboard/[game]/[seed]/   GET best-per-player on one seed
 ```
 
 ## What's deliberately NOT here
@@ -50,8 +49,8 @@ MAIL_FROM=login@yourdomain.com
 ## The one rule worth keeping
 
 `runs.game` is the only thing that knows which game a row belongs to.
-Auth, sessions, and the leaderboard query never hardcode "mining" — check
-`app/api/runs/route.ts` and the leaderboard route to confirm before adding
+Auth and sessions never hardcode "mining" — check
+`app/api/runs/route.ts` to confirm before adding
 game #2. If a new game requires touching either of those files, something
 has leaked out of the registry pattern and is worth fixing before it repeats.
 

@@ -11,7 +11,7 @@ import {
 } from '@/lib/mining-inventory';
 import { loadSlots } from '@/lib/proxies';
 
-// GET /api/inventory?game=mining ->
+// GET /api/inventory?activityType=extraction ->
 //   { catalog, inventory, balance, chassis, slotTotal, equipmentSlotTotal, equipmentAvailable, slots }
 // Shared read used by the Store (browse + buy), the Build screen (equip
 // from what's owned), and the fitting/run pages (read-only chassis
@@ -37,15 +37,15 @@ export async function GET(req: NextRequest) {
   const player = await currentPlayer({ touch: false });
   if (!player) return NextResponse.json({ error: 'not signed in' }, { status: 401 });
 
-  const game = req.nextUrl.searchParams.get('game');
-  if (!game) return NextResponse.json({ error: 'missing game' }, { status: 400 });
+  const activityType = req.nextUrl.searchParams.get('activityType');
+  if (!activityType) return NextResponse.json({ error: 'missing activityType' }, { status: 400 });
 
   const [catalog, inventory] = await Promise.all([
-    loadCatalog(game),
-    loadInventory(player.id, game),
+    loadCatalog(activityType),
+    loadInventory(player.id, activityType),
   ]);
 
-  if (game === 'mining') {
+  if (activityType === 'extraction') {
     const [chassis, slots] = await Promise.all([
       computeChassis(player.id),
       resolveMiningProxy(player.id).then(({ proxyId }) => loadSlots(proxyId)),

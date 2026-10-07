@@ -86,7 +86,7 @@ async function postJSON<T>(
   return { ok: true, data: await res.json() };
 }
 
-export function MiningRunScreen() {
+export function MiningRunScreen({ siteId }: { siteId: string }) {
   const router = useRouter();
   const [runId, setRunId] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
@@ -126,7 +126,7 @@ export function MiningRunScreen() {
       dims: FieldDims;
       energy: number;
     }>("/api/runs/field", {
-      game: "mining",
+      siteId,
       ...(seedOverride !== undefined ? { seed: seedOverride } : {}),
     });
     if (!r.ok) {
@@ -145,7 +145,7 @@ export function MiningRunScreen() {
     setView(null);
     setResults(null);
     endingRef.current = false;
-  }, []);
+  }, [siteId]);
 
   // Resumes whatever's already in progress (an unlaunched fit — survey and
   // all — or a run mid-flight) instead of rolling a new field. This is what
@@ -153,7 +153,7 @@ export function MiningRunScreen() {
   // wipe a bought survey or reroll the seed (see app/api/runs/current/route.ts).
   const resumeCurrentRun = useCallback(async () => {
     const r = await postJSON<CurrentRunPayload>("/api/runs/current", {
-      game: "mining",
+      siteId,
     });
     if (!r.ok) {
       if (r.status === 401) setAuthRequired(true);
@@ -176,7 +176,7 @@ export function MiningRunScreen() {
       setEnergy(r.data.energy);
       setDims(r.data.dims);
     }
-  }, []);
+  }, [siteId]);
 
   // For display purposes only — the server recomputes this from scratch at
   // launch (see computeChassis() in lib/mining-inventory.ts) and never
@@ -186,7 +186,7 @@ export function MiningRunScreen() {
   // catalog/inventory rows here, so this can't drift from the one place
   // that math actually lives.
   const fetchInventory = useCallback(async () => {
-    const res = await fetch("/api/inventory?game=mining");
+    const res = await fetch("/api/inventory?activityType=extraction");
     if (!res.ok) return;
     const data = await res.json();
     setChassis(data.chassis);

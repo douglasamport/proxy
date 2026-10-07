@@ -17,7 +17,9 @@ export default async function SitePage({
   const site = await getSite(siteId);
   if (!site) notFound();
 
-  if (site.activity_type === "extraction") return <MiningRunScreen />;
-  if (site.activity_type === "refining") return <RefineBatchScreen />;
+  if (site.activity_type === "extraction")
+    return <MiningRunScreen siteId={siteId} />;
+  if (site.activity_type === "refining")
+    return <RefineBatchScreen siteId={siteId} />;
   notFound();
 }

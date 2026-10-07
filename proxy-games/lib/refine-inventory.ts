@@ -1,9 +1,8 @@
 // DB-facing inventory layer for the Refinery minigame — the refine
 // equivalent of lib/mining-inventory.ts. Deliberately imports the generic
 // catalog/purchase/sell/equip functions from there rather than
-// re-implementing them: loadCatalog(game), purchaseItem(playerId, game, ...)
-// etc. already take `game` as a plain argument and touch no mining-specific
-// tables, so they work for 'refine' unchanged. This file only adds what's
+// etc. touch no mining-specific tables, so they work for the 'refine' item
+// class unchanged. This file only adds what's
 // actually refine-specific: the starter kit, the furnace/vat/cooler ->
 // RefineRig math, and per-mineral ore/output bookkeeping.
 import { sql } from "@/db/client";
@@ -11,16 +10,10 @@ import { rigFromEffects, PART_CATEGORIES } from "./refine-engine";
 import type { RefineRig, StatKey, PartCategory } from "./refine-engine";
 import { loadOreData, loadUnlockedOreTypes } from "./mining-inventory";
 import type { OreTypeKey } from "./mining-inventory";
-import { resolveSiteId } from "./sites";
 
 export { PART_CATEGORIES };
 export type { PartCategory };
-import {
-  loadCatalog,
-  loadInventory,
-  purchaseItem,
-  sellItem,
-} from "./mining-inventory";
+import { loadInventory, purchaseItem, sellItem } from "./mining-inventory";
 import type {
   CatalogItem,
   InventoryRow,
@@ -28,10 +21,10 @@ import type {
   SellItemResult,
 } from "./mining-inventory";
 
-export { loadCatalog, loadInventory, purchaseItem, sellItem };
+export { loadInventory, purchaseItem, sellItem };
 export type { CatalogItem, InventoryRow, PurchaseItemResult, SellItemResult };
 
-export const GAME = "refine";
+export const GAME = "refining"; // the activity type
 
 // Ore item_keys equal the OreTypeKey strings themselves (see db/010's ore
 // rows) — mining's extraction and refine's batches read/write the exact
@@ -106,12 +99,11 @@ export async function grantRefineStarterKit(playerId: string): Promise<void> {
 export async function computeRefineEffects(
   playerId: string,
 ): Promise<Partial<Record<StatKey, number>>> {
-  const siteId = await resolveSiteId(GAME);
   const rows = await sql`
     select ic.effects, pi.equipped_quantity
     from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
-    where pi.player_id = ${playerId} and ic.site_id = ${siteId} and pi.equipped_quantity > 0
+    where pi.player_id = ${playerId} and ${GAME} = any(ic.activity_types) and pi.equipped_quantity > 0
       and ic.category = any(${PART_CATEGORIES})
   `;
 
@@ -227,12 +219,11 @@ export async function setActivePart(
   category: PartCategory,
   itemKey: string,
 ): Promise<SetActivePartResult> {
-  const siteId = await resolveSiteId(GAME);
   const [row] = await sql`
     select pi.owned_quantity from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
     where pi.player_id = ${playerId} and pi.item_key = ${itemKey}
-      and ic.site_id = ${siteId} and ic.category = ${category}
+      and ${GAME} = any(ic.activity_types) and ic.category = ${category}
   `;
   if (!row || row.owned_quantity < 1) return "not_owned";
 
@@ -240,7 +231,7 @@ export async function setActivePart(
     sql`
       update player_inventory set equipped_quantity = 0, updated_at = now()
       where player_id = ${playerId} and equipped_quantity > 0 and item_key in (
-        select item_key from item_catalog where site_id = ${siteId} and category = ${category}
+        select item_key from item_catalog where ${GAME} = any(activity_types) and category = ${category}
       )
     `,
     sql`

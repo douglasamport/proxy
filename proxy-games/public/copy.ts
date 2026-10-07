@@ -15,7 +15,7 @@ Jim`;
 
 export const whatThisIsHeader = `What you're playing`;
 
-export const whatThisIs = `These are standalone games. Each one is complete on its own. They share an account and a leaderboard and not a ton else. Slowly they should begin to fit together.
+export const whatThisIs = `These are standalone games. Each one is complete on its own. They share an account and not a ton else. Slowly they should begin to fit together.
 
 **What they're for.** They're also field tests. Each one is a mechanic I need for something larger: a persistent world where you run a single mortal character, and where the people at the top hold their position only as long as everyone else keeps choosing to back them.
 

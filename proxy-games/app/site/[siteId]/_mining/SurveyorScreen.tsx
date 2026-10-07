@@ -15,5 +15,5 @@ export function SurveyorScreen() {
     [],
   );
 
-  return <CatalogScreen game="mining" categoryFilter={categoryFilter} />;
+  return <CatalogScreen activityType="extraction" categoryFilter={categoryFilter} />;
 }

@@ -14,7 +14,7 @@ import type { ChassisSlot } from "./proxies";
 
 export interface CatalogItem {
   item_key: string;
-  item_class: string;
+  activity_types: string[];
   category: string;
   label: string;
   description: string | null;
@@ -38,7 +38,7 @@ export interface OreTypeMeta {
 
 export interface OreCatalogRow {
   item_key: string;
-  item_class: string;
+  activity_types: string[];
   category: string;
   label: string;
   description: string | null;
@@ -59,40 +59,43 @@ export interface InventoryRow {
   equipped_quantity: number;
 }
 
-// `classes` filters by item_class ('mining', 'refine', ...) — one, several,
+// `activityTypes` filters to items usable in any of those activities
+// ('extraction', 'refining', ...) — one, several,
 // or omitted for the whole catalog (e.g. the inventory page, which just
 // needs a lookup map of every item).
 export async function loadCatalog(
-  classes?: string | string[],
+  activityTypes?: string | string[],
 ): Promise<CatalogItem[]> {
-  const list = classes === undefined ? null : [classes].flat();
+  const list =
+    activityTypes === undefined ? null : [activityTypes].flat();
   const rows = await sql`
-    select item_key, item_class, category, label, description, cost, effects, active, image_url, sellable, sell_value
+    select item_key, activity_types, category, label, description, cost, effects, active, image_url, sellable, sell_value
     from item_catalog
-    where active = true and (${list}::text[] is null or item_class = any(${list}))
+    where active = true and (${list}::text[] is null or activity_types && ${list}::text[])
     order by category, cost
   `;
   return rows as CatalogItem[];
 }
 
-// player_inventory has no class column of its own (only item_catalog
-// does), so filtering by class joins through the catalog. Omit `classes`
-// for everything the player owns across all classes.
+// player_inventory has no activity column of its own (only item_catalog
+// does), so filtering joins through the catalog. Omit `activityTypes`
+// for everything the player owns across all activities.
 // `equipped_quantity` is always 0 for mining rows now (see
 // db/021_migrate_mining_proxy.sql) — chassis_slots is the source of truth
 // for what's installed; this column only still means something for games
 // (refine) that haven't moved onto the slot model yet.
 export async function loadInventory(
   playerId: string,
-  classes?: string | string[],
+  activityTypes?: string | string[],
 ): Promise<InventoryRow[]> {
-  const list = classes === undefined ? null : [classes].flat();
+  const list =
+    activityTypes === undefined ? null : [activityTypes].flat();
   const rows = await sql`
     select pi.item_key, pi.owned_quantity, pi.equipped_quantity
     from player_inventory pi
     join item_catalog ic on ic.item_key = pi.item_key
     where pi.player_id = ${playerId}
-      and (${list}::text[] is null or ic.item_class = any(${list}))
+      and (${list}::text[] is null or ic.activity_types && ${list}::text[])
   `;
   return rows as InventoryRow[];
 }
@@ -108,7 +111,6 @@ export type PurchaseItemResult =
 // charged at all — the catalog lookup happens before any money moves.
 export async function purchaseItem(
   playerId: string,
-  game: string,
   itemKey: string,
   quantity: number,
 ): Promise<PurchaseItemResult> {
@@ -132,8 +134,8 @@ export async function purchaseItem(
       do update set owned_quantity = player_inventory.owned_quantity + excluded.owned_quantity, updated_at = now()
     `,
     sql`
-      insert into balance_transactions (player_id, game, reason, delta)
-      values (${playerId}, ${game}, 'store_purchase', ${-totalCost})
+      insert into balance_transactions (player_id, reason, delta)
+      values (${playerId}, 'store_purchase', ${-totalCost})
     `,
   ]);
 
@@ -168,7 +170,7 @@ export const FLAT_SELL_PRICE_CATEGORIES = new Set(["ore", "refined"]);
 // read player_inventory.equipped_quantity, the pre-slot-model shape.
 export async function sellItem(
   playerId: string,
-  game: string,
+  activityType: string,
   itemKey: string,
   quantity: number,
 ): Promise<SellItemResult> {
@@ -184,7 +186,7 @@ export async function sellItem(
   if (!row.sellable || row.sell_value == null) return { kind: "not_sellable" };
 
   const reserved =
-    game === "mining"
+    activityType === MINING_ACTIVITY
       ? await (async () => {
           const characterId = await getOrCreateCharacter(playerId, "Pilot");
           return countInstalledElsewhere(characterId, itemKey);
@@ -205,8 +207,8 @@ export async function sellItem(
       where player_id = ${playerId} and item_key = ${itemKey}
     `,
     sql`
-      insert into balance_transactions (player_id, game, reason, delta)
-      values (${playerId}, ${game}, 'item_sale', ${proceeds})
+      insert into balance_transactions (player_id, reason, delta)
+      values (${playerId}, 'item_sale', ${proceeds})
     `,
     sql`update players set balance = balance + ${proceeds} where id = ${playerId}`,
   ]);
@@ -317,7 +319,7 @@ export async function loadUnlockedOreTypes(
 // means whichever one is currently selected for 'mining', never just "a"
 // proxy.
 
-const MINING_GAME = "mining";
+const MINING_ACTIVITY = "extraction";
 const MINING_PROXY_NAME = "Mining Chassis";
 
 // Exported so hot multi-call sites (e.g. GET /api/inventory) can resolve
@@ -330,7 +332,7 @@ export async function resolveMiningProxy(
   const characterId = await getOrCreateCharacter(playerId, "Pilot");
   const proxyId = await getOrCreateActiveProxy(
     characterId,
-    MINING_GAME,
+    MINING_ACTIVITY,
     MINING_PROXY_NAME,
     CFG.SLOT_TOTAL,
   );
@@ -423,15 +425,15 @@ export async function getSlotTotal(playerId: string): Promise<number> {
 // item attached.
 export async function purchaseChassisExpansion(
   playerId: string,
-  game: string,
+  activityType: string,
 ): Promise<PurchaseItemResult> {
   // This always expands the MINING chassis (resolveMiningProxy is hardcoded
   // to it) — genuinely mining-only for now, per the ore-progression build
   // spec's scoping. A refine/arena equivalent needs its own resolver before
-  // this can honor an arbitrary `game`; until then, refuse rather than
+  // this can honor an arbitrary `activityType`; until then, refuse rather than
   // silently expand the wrong game's chassis for a purchase logged under a
   // different game's ledger.
-  if (game !== MINING_GAME) return { kind: "not_found" };
+  if (activityType !== MINING_ACTIVITY) return { kind: "not_found" };
 
   const [item] =
     await sql`select cost from item_catalog where item_key = ${EXPANSION_ITEM_KEY} and active = true`;
@@ -452,8 +454,8 @@ export async function purchaseChassisExpansion(
   await sql.transaction([
     sql`insert into chassis_slots (proxy_id, slot_type) values (${proxyId}, 'standard')`,
     sql`
-      insert into balance_transactions (player_id, game, reason, delta)
-      values (${playerId}, ${game}, 'chassis_expansion', ${-cost})
+      insert into balance_transactions (player_id, reason, delta)
+      values (${playerId}, 'chassis_expansion', ${-cost})
     `,
   ]);
 
@@ -478,10 +480,10 @@ export type PurchaseEquipmentSlotResult =
 
 export async function purchaseEquipmentSlotUnlock(
   playerId: string,
-  game: string,
+  activityType: string,
 ): Promise<PurchaseEquipmentSlotResult> {
   // Mining-only for now — see the matching guard in purchaseChassisExpansion().
-  if (game !== MINING_GAME) return { kind: "not_found" };
+  if (activityType !== MINING_ACTIVITY) return { kind: "not_found" };
 
   const [item] =
     await sql`select cost from item_catalog where item_key = ${EQUIPMENT_SLOT_KEY} and active = true`;
@@ -521,8 +523,8 @@ export async function purchaseEquipmentSlotUnlock(
   await sql.transaction([
     sql`insert into chassis_slots (proxy_id, slot_type) values (${proxyId}, 'carriage')`,
     sql`
-      insert into balance_transactions (player_id, game, reason, delta)
-      values (${playerId}, ${game}, 'equipment_slot_unlock', ${-cost})
+      insert into balance_transactions (player_id, reason, delta)
+      values (${playerId}, 'equipment_slot_unlock', ${-cost})
     `,
   ]);
 

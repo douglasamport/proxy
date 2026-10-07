@@ -2,25 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/db/client";
 import { currentPlayer } from "@/lib/auth";
 import { startSizing, loadActiveBatch } from "@/lib/refine-batch-store";
-import { loadOreOptions, GAME } from "@/lib/refine-inventory";
+import { loadOreOptions } from "@/lib/refine-inventory";
 import { getOrCreateCharacter } from "@/lib/characters";
 import { getEnergy } from "@/lib/energy";
-import { resolveSiteId } from "@/lib/sites";
+import { getSite } from "@/lib/sites";
 
-// POST {} -> the player's current in-progress refine batch, resumed as-is
+// POST { siteId } -> the player's current in-progress refine batch, resumed as-is
 // if one exists (sizing or active) — a fresh sizing row is only opened when
 // there truly isn't one yet. Mirrors POST /api/runs/current: this is what
 // page load/navigation calls, never discarding an unlaunched bid or an
 // active batch (see POST /api/refine/new for the explicit "new bid" path).
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
   const player = await currentPlayer({ touch: false });
   if (!player) {
     return NextResponse.json({ error: "not signed in" }, { status: 401 });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const { siteId } = body;
+
+  if (typeof siteId !== "string" || !siteId) {
+    return NextResponse.json({ error: "missing siteId" }, { status: 400 });
+  }
+
+  const site = await getSite(siteId);
+  if (!site || site.activity_type !== "refining") {
+    return NextResponse.json({ error: "Unknown site" }, { status: 404 });
+  }
+
   const characterId = await getOrCreateCharacter(player.id, "Pilot");
 
-  const siteId = await resolveSiteId(GAME);
   const [row] = await sql`
     select id, phase from in_progress_runs
     where player_id = ${player.id} and site_id = ${siteId}
@@ -30,7 +41,7 @@ export async function POST(_req: NextRequest) {
   if (!row) {
     const seed = Math.floor(Math.random() * 9000) + 1000;
     const [{ batchId, balance, oreOptions }, energy] = await Promise.all([
-      startSizing(player.id, seed),
+      startSizing(player.id, seed, siteId),
       getEnergy(characterId),
     ]);
     return NextResponse.json({
@@ -62,7 +73,7 @@ export async function POST(_req: NextRequest) {
     // Row vanished between the two reads (rare) — fall back to a fresh bid.
     const seed = Math.floor(Math.random() * 9000) + 1000;
     const [{ batchId, balance, oreOptions }, energy] = await Promise.all([
-      startSizing(player.id, seed),
+      startSizing(player.id, seed, siteId),
       getEnergy(characterId),
     ]);
     return NextResponse.json({

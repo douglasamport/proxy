@@ -27,6 +27,7 @@ export async function POST(
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
+
   const bidUnits = Number(body.bidUnits);
   const oreType = body.oreType;
   const oreData = await loadOreData();

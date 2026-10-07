@@ -39,7 +39,7 @@ export async function POST(
   }
 
   const cost = CFG.SURVEY[tier].cost;
-  const result = await purchaseSurvey(id, player.id, row.game, tier, cost);
+  const result = await purchaseSurvey(id, player.id, row, tier, cost);
   if (result.kind === "insufficient_funds") {
     return NextResponse.json({ error: "insufficient funds" }, { status: 402 });
   }
